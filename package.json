@@ -1,0 +1,23 @@
+{
+  "name": "opencode-arcana-local",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server": "./src/server.ts",
+    "./tui": "./src/tui.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run typecheck && bun test"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.18.13",
+    "@types/bun": "1.3.14",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "opencode": ">=1.18.13 <1.19.0"
+  }
+}
