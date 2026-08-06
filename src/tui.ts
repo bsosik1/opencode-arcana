@@ -1,57 +1,16 @@
 import type { TuiPluginModule } from "@opencode-ai/plugin/tui"
+import {
+  AGENT_IDENTITIES,
+  formatChildDescription,
+  formatChildTitle,
+  getAgentIdentity,
+  type AgentIdentity,
+  type ArcanaAgentId,
+} from "./agents.ts"
+import { registerMagicianAssistantsSidebar } from "./magician-assistants.tsx"
 
-export type ArcanaAgentId = "magician" | "knight-of-swords" | "hermit" | "page-of-swords" | "justice"
-
-export type AgentIdentity = {
-  displayName: string
-  role: string
-}
-
-export const AGENT_IDENTITIES: Record<ArcanaAgentId, AgentIdentity> = {
-  magician: { displayName: "The Magician", role: "Primary orchestrator" },
-  "knight-of-swords": { displayName: "Knight of Swords", role: "Fast implementation" },
-  hermit: { displayName: "The Hermit", role: "Deep implementation" },
-  "page-of-swords": { displayName: "Page of Swords", role: "Fast Audit" },
-  justice: { displayName: "Justice", role: "Deep Audit" },
-}
-
-type ChildSession = {
-  id: string
-  title?: string
-  agent?: string
-}
-
-export function getAgentIdentity(agent?: string): AgentIdentity {
-  const normalized = agent?.trim()
-  if (normalized && normalized in AGENT_IDENTITIES) {
-    return AGENT_IDENTITIES[normalized as ArcanaAgentId]
-  }
-  return {
-    displayName: normalized ? humanizeAgentId(normalized) : "Unknown agent",
-    role: "Subagent",
-  }
-}
-
-export function formatChildTitle(session: ChildSession): string {
-  const identity = getAgentIdentity(session.agent)
-  const title = session.title?.trim() || (session.agent ? identity.displayName : session.id)
-  if (title.toLocaleLowerCase().includes(identity.displayName.toLocaleLowerCase())) return title
-  return `${identity.displayName} — ${title}`
-}
-
-export function formatChildDescription(agent: string | undefined, status?: string): string {
-  const identity = getAgentIdentity(agent)
-  const runtimeId = agent?.trim() || "unknown"
-  return `${identity.role} · @${runtimeId} · ${status?.trim() || "idle"}`
-}
-
-function humanizeAgentId(agent: string): string {
-  return agent
-    .split("-")
-    .filter(Boolean)
-    .map((part) => part[0].toLocaleUpperCase() + part.slice(1))
-    .join(" ") || "Unknown agent"
-}
+export { AGENT_IDENTITIES, formatChildDescription, formatChildTitle, getAgentIdentity }
+export type { AgentIdentity, ArcanaAgentId }
 
 function unwrap<T>(result: T | { data?: T; error?: unknown }, operation: string): T {
   if (result && typeof result === "object" && "error" in result && result.error) {
@@ -147,6 +106,7 @@ const plugin: TuiPluginModule = {
     })
 
     api.lifecycle.onDispose(unregister)
+    registerMagicianAssistantsSidebar(api)
   },
 }
 
