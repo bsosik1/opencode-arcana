@@ -138,7 +138,9 @@ Every delegated operation has a native child session. The `task_id` remains avai
 
 ## TUI navigation
 
-The TUI plugin contributes a collapsible **Magician Assistants** section between Quota and MCP. It keeps the four workers in fixed routing order, shows live activity dots, and reconstructs non-pending native `task` invocation counts from the current root Magician session after reopening it. Only the open/collapsed preference is persisted through OpenCode's TUI key-value store.
+The TUI plugin contributes a collapsible **Magician Assistants** section to the sidebar. It keeps the four workers in fixed routing order, shows live activity dots, and reconstructs non-pending native `task` invocation counts from the current root Magician session after reopening it. Only the open/collapsed preference is persisted through OpenCode's TUI key-value store.
+
+Simultaneous live delegations are listed on separate lines of one native notification toast, in arrival order.
 
 The plugin also registers one command for native task children:
 
@@ -261,7 +263,7 @@ The public reproducible baseline is:
 bun run check
 ```
 
-This currently runs TypeScript checking plus **69 tests and 289 assertions**. After installation, `opencode debug config` can be used to inspect the resolved OpenCode configuration:
+This currently runs TypeScript checking plus **107 tests and 427 assertions**. After installation, `opencode debug config` can be used to inspect the resolved OpenCode configuration:
 
 ```sh
 opencode debug config
@@ -278,6 +280,7 @@ src/
   configure-agents.ts           Agent and permission configuration
   configure-commands.ts         Explicit command registration
   magician-assistants-state.ts  History, counting, activity, pagination, and reliability state
+  magician-assistant-notifications.ts Live delegation ledger, store, controller, and native toast pushes
   magician-assistants.tsx       Collapsible sidebar UI/slot
   prompts.ts                    Prompt loading
 prompts/

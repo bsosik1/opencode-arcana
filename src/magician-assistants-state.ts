@@ -93,17 +93,36 @@ export function getAssistantIdFromTaskPart(part: unknown): MagicianAssistantId |
   return isAssistantId(agent) ? agent : undefined
 }
 
+/** Return the status of a native task ToolPart, if it is structurally usable. */
+export function getTaskPartStatus(part: unknown): string | undefined {
+  if (!isTaskPart(part)) return undefined
+  return stringValue(part.state?.status)
+}
+
+/** Match the sidebar's non-pending count semantics for a task observation. */
+export function isCountedTaskStatus(status: unknown): status is string {
+  return typeof status === "string" && status.length > 0 && status !== "pending"
+}
+
+/** Return only identities that remain stable when a live ToolPart is updated. */
+export function getStableToolPartIdentity(part: ToolPartLike, messageID = ""): string | undefined {
+  const id = stringValue(part.id)
+  if (id) return `part:${id}`
+
+  const callID = stringValue(part.callID)
+  if (callID) return `call:${messageID || stringValue(part.messageID) || ""}:${callID}`
+
+  return undefined
+}
+
 /**
  * Parts have a stable id in the public SDK. The fallback keeps tests and older
  * records usable without conflating two parts in the same message: callID is
  * preferred, then the message-local part index is used.
  */
 export function getToolPartIdentity(part: ToolPartLike, messageID = "", partIndex = 0): string {
-  const id = stringValue(part.id)
-  if (id) return `part:${id}`
-
-  const callID = stringValue(part.callID)
-  if (callID) return `call:${messageID}:${callID}`
+  const stableIdentity = getStableToolPartIdentity(part, messageID)
+  if (stableIdentity) return stableIdentity
 
   const agent = getAssistantIdFromTaskPart(part) ?? "unknown"
   return `fallback:${messageID}:${partIndex}:${agent}`

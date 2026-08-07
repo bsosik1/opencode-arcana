@@ -7,6 +7,7 @@ import {
   type AgentIdentity,
   type ArcanaAgentId,
 } from "./agents.ts"
+import { registerMagicianAssistantNotifications } from "./magician-assistant-notifications.ts"
 import { registerMagicianAssistantsSidebar } from "./magician-assistants.tsx"
 
 export { AGENT_IDENTITIES, formatChildDescription, formatChildTitle, getAgentIdentity }
@@ -106,6 +107,7 @@ const plugin: TuiPluginModule = {
     })
 
     api.lifecycle.onDispose(unregister)
+    registerMagicianAssistantNotifications(api)
     registerMagicianAssistantsSidebar(api)
   },
 }
