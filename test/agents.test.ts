@@ -56,6 +56,19 @@ describe("configureAgents", () => {
     })
   })
 
+  test("gives both implementation workers todo write access while keeping their other permissions", async () => {
+    const config = {} as Config
+    configureAgents(config, DEFAULT_OPTIONS, await loadPrompts())
+
+    for (const name of ["knight-of-swords", "hermit"]) {
+      const permission = config.agent?.[name]?.permission as Record<string, unknown>
+      expect(permission.todowrite).toBe("allow")
+      expect(permission.question).toBe("deny")
+      expect(permission.task).toBe("deny")
+      expect(permission.edit).toBe("allow")
+    }
+  })
+
   test("keeps auditors read-only", async () => {
     const config = {} as Config
     configureAgents(config, DEFAULT_OPTIONS, await loadPrompts())

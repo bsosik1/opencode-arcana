@@ -24,23 +24,23 @@ export function configureAgents(config: Config, options: ArcanaOptions, prompts:
     },
     "knight-of-swords": {
       description:
-        "Knight of Swords / Fast implementation. Use for atomic, low-ambiguity work in a small known scope; never use for architecture or broad debugging.",
+        "Knight of Swords / Fast implementation. Use for clear, bounded, low-ambiguity work, including multi-file changes; never use for architecture or broad debugging.",
       mode: "subagent",
       hidden: true,
       model: options.models["knight-of-swords"].model,
       variant: options.models["knight-of-swords"].variant,
       prompt: prompts.knightOfSwords,
-      permission: implementationPermission(false, options.wikiPath),
+      permission: implementationPermission(options.wikiPath),
     },
     hermit: {
       description:
-        "The Hermit / Deep implementation. Use for complex, ambiguous, multi-file, architectural, root-cause, security, concurrency, migration, or data-sensitive work.",
+        "The Hermit / Deep implementation. Use for complex, ambiguous, architectural, root-cause, security, concurrency, migration, or data-sensitive work.",
       mode: "subagent",
       hidden: true,
       model: options.models.hermit.model,
       variant: options.models.hermit.variant,
       prompt: prompts.hermit,
-      permission: implementationPermission(true, options.wikiPath),
+      permission: implementationPermission(options.wikiPath),
     },
     "page-of-swords": {
       description: "Page of Swords / Fast Audit. Independent read-only auditor for focused checks and quick validation.",
@@ -80,10 +80,10 @@ function magicianPermission(wikiPath?: string) {
   }
 }
 
-function implementationPermission(deep: boolean, wikiPath?: string) {
+function implementationPermission(wikiPath?: string) {
   return {
     question: "deny" as const,
-    todowrite: deep ? ("allow" as const) : ("deny" as const),
+    todowrite: "allow" as const,
     task: "deny" as const,
     edit: "allow" as const,
     bash: safeImplementationBash(),

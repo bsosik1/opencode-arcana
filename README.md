@@ -18,8 +18,8 @@ OpenCode Arcana is an OpenCode plugin with one visible `magician` primary agent 
 | Role | Agent | Default model | Boundary | Responsibility |
 | --- | --- | --- | --- | --- |
 | Primary | `magician` | `openai/gpt-5.6-sol` - `xhigh` | Can edit only within the explicitly authorized result; can run necessary checks and delegate only to the four workers | The Magician separates intent, mode, and authorization, routes work, coordinates findings, and verifies the authorized result. |
-| Fast worker | `knight-of-swords` | `opencode-go/deepseek-v4-flash` - `max` | Can edit and run approved checks; cannot call `task` | Atomic, low-ambiguity implementation in a small known scope. |
-| Deep worker | `hermit` | `openai/gpt-5.6-luna` - `xhigh` | Can edit and run approved checks; cannot call `task` | Complex, ambiguous, multi-file, architectural, root-cause, security, concurrency, or data-sensitive work. |
+| Fast worker | `knight-of-swords` | `opencode-go/deepseek-v4-flash` - `max` | Can edit and run approved checks; cannot call `task` | Clear, bounded, low-ambiguity implementation, including multi-file changes. |
+| Deep worker | `hermit` | `openai/gpt-5.6-luna` - `xhigh` | Can edit and run approved checks; cannot call `task` | Complex, ambiguous, architectural, root-cause, security, concurrency, or data-sensitive work. |
 | Fast auditor | `page-of-swords` | `opencode-go/deepseek-v4-flash` - `max` | Read-only; direct `webfetch`, `websearch`, and `skill`; exact timestamp checks only; secret-bearing reads denied | Focused checks and quick validation. |
 | Deep auditor | `justice` | `openai/gpt-5.6-luna` - `xhigh` | Read-only; direct `webfetch`, `websearch`, and `skill`; exact timestamp checks only; secret-bearing reads denied | Thorough behavioral and architectural validation. |
 
@@ -73,8 +73,8 @@ The data flow is intentionally one-way at the audit boundary: target and constra
 | Intent | Route | Worker | Parent behavior |
 | --- | --- | --- | --- |
 | Microscopic, obvious change | Direct | None | The Magician handles the change and checks the result. |
-| Small bounded implementation or explicit quick fix | Fast | `knight-of-swords` | Inspect the diff and run a narrow check; an explicit quick fix uses shallow parent verification and no audit unless requested. |
-| Complex, ambiguous, multi-file, architectural, security, concurrency, or data-sensitive work | Deep | `hermit` | Inspect the integrated result and run appropriate verification. |
+| Clear bounded implementation or explicit quick fix | Fast | `knight-of-swords` | Inspect the diff and run a narrow check; an explicit quick fix uses shallow parent verification and no audit unless requested. |
+| Complex, ambiguous, architectural, security, concurrency, or data-sensitive work | Deep | `hermit` | Inspect the integrated result and run appropriate verification. |
 | Explicit quick check | Fast Audit | `page-of-swords` | Read-only report with filtered findings, evidence, and a plan; no implementation. |
 | Ordinary audit, review, validation, or verification | Deep Audit | `justice` | Read-only report with filtered findings, evidence, and a plan; no implementation. |
 | Explicit cross validation | Fast Audit + Deep Audit | `page-of-swords` + `justice` | Run exactly both independently in parallel, fuse the read-only reports, and stop at the final plan. |
@@ -281,7 +281,7 @@ The public reproducible baseline is:
 bun run check
 ```
 
-This currently runs TypeScript checking plus **123 tests and 535 assertions**. After installation, `opencode debug config` can be used to inspect the resolved OpenCode configuration and confirm the active five-role model tuple plus `wikiPath`:
+This currently runs TypeScript checking plus **124 tests and 547 assertions**. After installation, `opencode debug config` can be used to inspect the resolved OpenCode configuration and confirm the active five-role model tuple plus `wikiPath`:
 
 ```sh
 opencode debug config

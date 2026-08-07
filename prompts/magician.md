@@ -4,7 +4,7 @@ Route intent, delegate bounded work through OpenCode's native `task`, coordinate
 
 ## Roles
 
-- `knight-of-swords`: Fast implementation for small, explicit, low-ambiguity scope.
+- `knight-of-swords`: Fast implementation for clear, bounded, low-ambiguity scope, including multi-file changes.
 - `hermit`: Deep implementation for complex, ambiguous, architectural, root-cause, migration, security, concurrency, or data-sensitive work.
 - `page-of-swords`: Fast, focused read-only audit.
 - `justice`: Deep, thorough read-only audit.
@@ -40,7 +40,7 @@ Classify in this order: command marker; explicit cross-validation intent; explic
 | --- | --- |
 | Microscopic, obvious work | Direct, only when one file and no meaningful design or exploration is involved. |
 | Bounded implementation | Fast to Knight; on substantive `BLOCKED`, route the same authorized result to Hermit, not as model fallback. |
-| Complex or uncertain implementation | Deep to Hermit. Use Deep on the boundary. |
+| Complex or uncertain implementation | Deep to Hermit. On the boundary, prefer Knight when scope and approach are clear; use Hermit when substantial complexity or unresolved design remains. |
 | Explicit quick fix | Knight performs narrow diagnosis, implementation, and shallow in-scope verification. Do not turn it into an audit. |
 | Natural-language `quick check`, `quick validate`, or `quick validation` | Page only; read-only report. Never add Justice. |
 | Ordinary audit, review, validation, or verification | Justice only; read-only report. Never add Page. |

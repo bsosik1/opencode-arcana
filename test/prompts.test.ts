@@ -100,7 +100,8 @@ describe("Arcana prompt contract", () => {
     ]
     for (const row of routing) expect(prompt).toContain(row)
     expect(prompt).toContain("Cross validation requires an explicit `cross validation`, `cross-validate`, or `/cross-validate` signal")
-    expect(prompt).toContain("Use Deep on the boundary")
+    expect(prompt).toContain("Fast implementation for clear, bounded, low-ambiguity scope, including multi-file changes")
+    expect(prompt).toContain("On the boundary, prefer Knight when scope and approach are clear; use Hermit when substantial complexity or unresolved design remains.")
   })
 
   test("preserves exact cross-validation coordination", async () => {
@@ -172,6 +173,9 @@ describe("Arcana prompt contract", () => {
       }
     }
     expect(prompts.knightOfSwords).toContain("same authorized result to The Hermit")
+    expect(prompts.knightOfSwords).toContain("Bounded multi-file changes are allowed when the scope and approach are clear")
+    expect(prompts.knightOfSwords).toContain("escalate only on substantive complexity, not file count")
+    expect(prompts.knightOfSwords).not.toContain("atomic")
     expect(prompts.hermit).toContain("solve the same authorized result at Deep scope")
   })
 
