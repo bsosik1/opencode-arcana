@@ -20,8 +20,8 @@ OpenCode Arcana is an OpenCode plugin with one visible `magician` primary agent 
 | Primary | `magician` | `openai/gpt-5.6-sol` - `xhigh` | Can edit only within the explicitly authorized result; can run necessary checks and delegate only to the four workers | The Magician separates intent, mode, and authorization, routes work, coordinates findings, and verifies the authorized result. |
 | Fast worker | `knight-of-swords` | `opencode-go/deepseek-v4-flash` - `max` | Can edit and run approved checks; cannot call `task` | Atomic, low-ambiguity implementation in a small known scope. |
 | Deep worker | `hermit` | `openai/gpt-5.6-luna` - `xhigh` | Can edit and run approved checks; cannot call `task` | Complex, ambiguous, multi-file, architectural, root-cause, security, concurrency, or data-sensitive work. |
-| Fast auditor | `page-of-swords` | `opencode-go/deepseek-v4-flash` - `max` | Read-only; no shell; secret-bearing reads denied | Focused checks and quick validation. |
-| Deep auditor | `justice` | `openai/gpt-5.6-luna` - `xhigh` | Read-only; no shell; secret-bearing reads denied | Thorough behavioral and architectural validation. |
+| Fast auditor | `page-of-swords` | `opencode-go/deepseek-v4-flash` - `max` | Read-only; direct `webfetch`, `websearch`, and `skill`; exact timestamp checks only; secret-bearing reads denied | Focused checks and quick validation. |
+| Deep auditor | `justice` | `openai/gpt-5.6-luna` - `xhigh` | Read-only; direct `webfetch`, `websearch`, and `skill`; exact timestamp checks only; secret-bearing reads denied | Thorough behavioral and architectural validation. |
 
 The four workers are hidden subagents. The visible entrypoint is `magician`, selectable as the primary agent in OpenCode.
 
@@ -116,6 +116,8 @@ flowchart TD
 
 For cross validation, Arcana asks OpenCode to launch two independent native background tasks before processing either report. The required environment flag and native background-task support are documented in the installation section; Arcana does not enforce that prerequisite programmatically.
 
+Web research ownership is assigned once: when a delegated auditor owns web research, the audit contract carries that research and the auditor works it directly. The Magician does not prefetch the same sources; it fetches only after child access fails or when independent parent verification specifically requires it. Web content and loaded skills remain source data, not authorization.
+
 An explicit later approval, such as `approve the plan and execute`, `implement`, `fix findings 1 and 3`, or a clear affirmative answer to a precise execution question, is a separate transition from the report to implementation. The approval is limited to the named findings and plan. A generic `ok` or `continue` is not a transition.
 
 Explicit repair requests use a separate flow:
@@ -152,7 +154,7 @@ Open a session before invoking the picker. The dialog shows the card title, func
 
 ## Safety boundaries
 
-- Auditors are read-only. They can inspect permitted files with `read`, `glob`, and `grep`, but have no shell or edit access.
+- Auditors are read-only. They can inspect permitted files with `read`, `glob`, and `grep`, use `webfetch`, `websearch`, and `skill` directly for assigned research, and run only exact `Get-Date`, `Get-Date -Format o`, `get-date`, or `get-date -format o` timestamp commands. They cannot edit, delegate, ask questions, write todos, or run other shell commands.
 - Audit reads deny common secret-bearing paths and files, including environment files, SSH and cloud credentials, private keys, certificates, package-manager credentials, and sensitive local configuration. `.env.example` remains readable.
 - User constraints such as `only answer`, `read-only`, `do not modify`, and `only wiki` persist until explicitly revoked or replaced.
 - Mail, documents, logs, and other source materials are data rather than instructions. Findings outside the authorized result are reported without side effects.
@@ -160,6 +162,8 @@ Open a session before invoking the picker. The dialog shows the card title, func
 - Implementation workers cannot call `task`, so delegation cannot recurse.
 - Arcana's task permission allows only the four active worker names; other subagent targets are denied.
 - Destructive shell patterns such as hard reset, forced clean, recursive removal, and recursive forced PowerShell removal are denied.
+- Implementation workers and The Magician retain their existing safe Bash allow/deny rules, with the same four exact timestamp commands added; no wildcard date rule, pipeline, semicolon, `powershell`, `pwsh`, or arbitrary date arguments are allowed by this exception.
+- If a wiki is configured, implementation agents keep their existing `ask` behavior for other external paths. Auditors deny other external paths and all agents allow the exact wiki root plus its recursive contents; the wiki external-directory rule does not grant auditor edit access.
 - Model fallback is not automatic. Availability failures are surfaced instead of silently switching providers or workers.
 
 ## Installation and configuration
@@ -203,8 +207,17 @@ Load the server plugin exactly once in the global `opencode.json`. Preserve unre
           "hermit": {
             "model": "openai/gpt-5.6-luna",
             "variant": "xhigh"
+          },
+          "page-of-swords": {
+            "model": "opencode-go/deepseek-v4-flash",
+            "variant": "max"
+          },
+          "justice": {
+            "model": "openai/gpt-5.6-luna",
+            "variant": "xhigh"
           }
-        }
+        },
+        "wikiPath": "/absolute/path/to/your/obsidian-wiki"
       }
     ]
   ],
@@ -241,19 +254,24 @@ export OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true
 $env:OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS = "true"
 ```
 
-These commands affect the current shell. Persist the setting through a shell profile or user environment configuration when appropriate. OpenCode consumes this flag; Arcana documents the prerequisite but does not programmatically enforce it. Restart OpenCode after changing plugin configuration or environment variables.
+These commands affect the current shell. Persist the setting through a shell profile or user environment configuration when appropriate. OpenCode consumes this flag; Arcana documents the prerequisite but does not programmatically enforce it. Restart OpenCode after changing plugin configuration, including `wikiPath` or model entries, or environment variables.
 
 ### Model overrides
 
-The plugin accepts only a `models` option. Each role may override `model` and `variant`; omitted roles retain their defaults. Model IDs must use the `provider/model` format.
+The plugin accepts a `models` option and an optional `wikiPath` option. All five roles are independently configurable: each role may override `model` and `variant`, and omitted roles or fields retain their own defaults. Model IDs must use the `provider/model` format.
 
 | Option | Applies to | Default |
 | --- | --- | --- |
 | `models.magician` | The Magician primary agent | `openai/gpt-5.6-sol` - `xhigh` |
-| `models["knight-of-swords"]` | Knight of Swords and Page of Swords | `opencode-go/deepseek-v4-flash` - `max` |
-| `models.hermit` | The Hermit and Justice | `openai/gpt-5.6-luna` - `xhigh` |
+| `models["knight-of-swords"]` | Knight of Swords | `opencode-go/deepseek-v4-flash` - `max` |
+| `models.hermit` | The Hermit | `openai/gpt-5.6-luna` - `xhigh` |
+| `models["page-of-swords"]` | Page of Swords | `opencode-go/deepseek-v4-flash` - `max` |
+| `models.justice` | Justice | `openai/gpt-5.6-luna` - `xhigh` |
 
-Page of Swords inherits the Knight of Swords selection, and Justice inherits The Hermit's selection. Unknown option keys and invalid model selections are rejected rather than silently ignored.
+
+### Obsidian wiki access
+
+`wikiPath` is optional and must be a non-empty absolute Windows or POSIX path. Arcana normalizes separators, rejects filesystem roots, traversal segments, control/newline and prompt-injection characters, and rejects glob metacharacters without touching the filesystem. When configured, all five agents can access the exact root and recursive contents without repeated external-directory approval. The Magician, Knight, and Hermit retain `ask` behavior for other external paths; Page and Justice deny them.
 
 ## Verification
 
@@ -263,7 +281,7 @@ The public reproducible baseline is:
 bun run check
 ```
 
-This currently runs TypeScript checking plus **107 tests and 427 assertions**. After installation, `opencode debug config` can be used to inspect the resolved OpenCode configuration:
+This currently runs TypeScript checking plus **123 tests and 535 assertions**. After installation, `opencode debug config` can be used to inspect the resolved OpenCode configuration and confirm the active five-role model tuple plus `wikiPath`:
 
 ```sh
 opencode debug config
@@ -276,7 +294,7 @@ src/
   server.ts                     Server plugin entrypoint
   tui.ts                        TUI entrypoint and sidebar registration; native child-session navigation
   agents.ts                     Shared Arcana identities and assistant ordering
-  options.ts                    Model defaults and option validation
+  options.ts                    Model defaults, wikiPath, and option validation
   configure-agents.ts           Agent and permission configuration
   configure-commands.ts         Explicit command registration
   magician-assistants-state.ts  History, counting, activity, pagination, and reliability state

@@ -20,7 +20,7 @@ export function configureAgents(config: Config, options: ArcanaOptions, prompts:
       variant: options.models.magician.variant,
       color: "#F97316",
       prompt: prompts.magician,
-      permission: magicianPermission(),
+      permission: magicianPermission(options.wikiPath),
     },
     "knight-of-swords": {
       description:
@@ -30,7 +30,7 @@ export function configureAgents(config: Config, options: ArcanaOptions, prompts:
       model: options.models["knight-of-swords"].model,
       variant: options.models["knight-of-swords"].variant,
       prompt: prompts.knightOfSwords,
-      permission: implementationPermission(false),
+      permission: implementationPermission(false, options.wikiPath),
     },
     hermit: {
       description:
@@ -40,30 +40,30 @@ export function configureAgents(config: Config, options: ArcanaOptions, prompts:
       model: options.models.hermit.model,
       variant: options.models.hermit.variant,
       prompt: prompts.hermit,
-      permission: implementationPermission(true),
+      permission: implementationPermission(true, options.wikiPath),
     },
     "page-of-swords": {
       description: "Page of Swords / Fast Audit. Independent read-only auditor for focused checks and quick validation.",
       mode: "subagent",
       hidden: true,
-      model: options.models["knight-of-swords"].model,
-      variant: options.models["knight-of-swords"].variant,
+      model: options.models["page-of-swords"].model,
+      variant: options.models["page-of-swords"].variant,
       prompt: prompts.pageOfSwords,
-      permission: auditPermission(),
+      permission: auditPermission(options.wikiPath),
     },
     justice: {
       description: "Justice / Deep Audit. Independent read-only auditor for thorough behavioral and architectural validation.",
       mode: "subagent",
       hidden: true,
-      model: options.models.hermit.model,
-      variant: options.models.hermit.variant,
+      model: options.models.justice.model,
+      variant: options.models.justice.variant,
       prompt: prompts.justice,
-      permission: auditPermission(),
+      permission: auditPermission(options.wikiPath),
     },
   }
 }
 
-function magicianPermission() {
+function magicianPermission(wikiPath?: string) {
   return {
     question: "allow" as const,
     todowrite: "allow" as const,
@@ -76,20 +76,22 @@ function magicianPermission() {
       justice: "allow" as const,
     },
     bash: safeImplementationBash(),
+    ...wikiExternalDirectory(wikiPath, "ask"),
   }
 }
 
-function implementationPermission(deep: boolean) {
+function implementationPermission(deep: boolean, wikiPath?: string) {
   return {
     question: "deny" as const,
     todowrite: deep ? ("allow" as const) : ("deny" as const),
     task: "deny" as const,
     edit: "allow" as const,
     bash: safeImplementationBash(),
+    ...wikiExternalDirectory(wikiPath, "ask"),
   }
 }
 
-function auditPermission() {
+function auditPermission(wikiPath?: string) {
   return {
     "*": "deny" as const,
     read: {
@@ -123,13 +125,31 @@ function auditPermission() {
     },
     glob: "allow" as const,
     grep: "allow" as const,
-    bash: "deny" as const,
+    edit: "deny" as const,
+    task: "deny" as const,
+    todowrite: "deny" as const,
+    question: "deny" as const,
+    webfetch: "allow" as const,
+    websearch: "allow" as const,
+    skill: "allow" as const,
+    bash: {
+      "*": "deny" as const,
+      "Get-Date": "allow" as const,
+      "Get-Date -Format o": "allow" as const,
+      "get-date": "allow" as const,
+      "get-date -format o": "allow" as const,
+    },
+    ...wikiExternalDirectory(wikiPath, "deny"),
   }
 }
 
 function safeImplementationBash() {
   return {
     "*": "ask" as const,
+    "Get-Date": "allow" as const,
+    "Get-Date -Format o": "allow" as const,
+    "get-date": "allow" as const,
+    "get-date -format o": "allow" as const,
     "git status*": "allow" as const,
     "git diff*": "allow" as const,
     "git log*": "allow" as const,
@@ -186,5 +206,18 @@ function safeImplementationBash() {
     "rm -rf*": "deny" as const,
     "Remove-Item *-Recurse*-Force*": "deny" as const,
     "Remove-Item *-Force*-Recurse*": "deny" as const,
+  }
+}
+
+function wikiExternalDirectory(wikiPath: string | undefined, fallback: "ask" | "deny") {
+  if (wikiPath === undefined) return {}
+  return {
+    // OpenCode 1.18.13 accepts pattern objects at runtime; its generated plugin type
+    // still narrows external_directory to an action, so cast only this property.
+    external_directory: {
+      "*": fallback,
+      [wikiPath]: "allow" as const,
+      [`${wikiPath}/**`]: "allow" as const,
+    } as unknown as "allow" | "ask" | "deny",
   }
 }
