@@ -243,12 +243,55 @@ These commands affect the current shell. Persist the setting through a shell pro
 
 ### Agent options
 
-The tuple accepts exactly `agents` and optional `wikiPath`. `agents` is partial: omitted roles keep their complete defaults, and omitted fields inside a role keep that role's default. Each role may set `model` (using `provider/model`), `variant`, and a singular `permission` overlay. An empty `permission` object is accepted as a no-op.
+The tuple accepts exactly `agents` and optional `wikiPath`. The `agents` object is partial: omitted roles keep their complete defaults, and omitted fields inside a role keep that role's default.
 
-Permission values are either one scalar action (`allow`, `ask`, or `deny`) or an ordered pattern map for granular permissions. A scalar replaces the complete baseline rule. A pattern map overlays it: a scalar baseline is lifted to `{ "*": baseline }`, unchanged baseline patterns retain their order, and local patterns are appended. Repeated or matching local patterns are therefore resolved last; OpenCode's last matching rule wins. Supported granular keys are `read`, `edit`, `glob`, `grep`, `list`, `bash`, `task`, `external_directory`, `lsp`, and `skill`. `todowrite`, `question`, `webfetch`, `websearch`, `doom_loop`, and outer `"*"` are scalar-only. Unknown tools and malformed values are rejected for typo safety.
+Each role may define:
 
-Every role may technically override every supported permission, including an auditor's `edit`, `bash`, `task`, or outer `"*"`. Project defaults remain role-specific and auditors still receive their built-in report-only prompts. A permission override changes technical capability only; it does not change prompt semantics or grant task-level user authorization. Users who intentionally extend a role's semantics need their own agent or prompt strategy outside this option surface. This is a trusted local-only operator surface. Restart OpenCode after changing tuple options so the plugin is reloaded.
+- `model` — a model ID in `provider/model` format;
+- `variant` — the provider-specific reasoning or performance variant;
+- `permission` — a singular object containing local permission overrides.
 
+An empty `permission` object is accepted as a no-op.
+
+#### Permission values
+
+Permission overrides use one of two value forms:
+
+- **Scalar action** — `"allow"`, `"ask"`, or `"deny"`. A scalar replaces the role's complete baseline rule for that permission.
+- **Granular pattern map** — an ordered map of patterns to actions. It is merged after the baseline: existing baseline patterns keep their order and local patterns are appended. OpenCode uses the last matching rule.
+
+Permission keys are grouped by the value forms they support:
+
+- **Scalar or granular:** `read`, `edit`, `glob`, `grep`, `list`, `bash`, `task`, `external_directory`, `lsp`, `skill`.
+- **Scalar only:** `todowrite`, `question`, `webfetch`, `websearch`, `doom_loop`, and outer `"*"`.
+
+For example, this keeps The Hermit's normal defaults, restricts Bash and edit access with granular rules, and applies scalar overrides to two other permissions:
+
+```json
+{
+  "agents": {
+    "hermit": {
+      "permission": {
+        "bash": {
+          "*": "deny",
+          "bun run check*": "allow"
+        },
+        "edit": {
+          "*": "deny",
+          "src/**": "allow",
+          "test/**": "allow"
+        },
+        "webfetch": "allow",
+        "todowrite": "deny"
+      }
+    }
+  }
+}
+```
+
+Unknown tools and malformed values are rejected for typo safety. Every role may technically override every supported permission, including an auditor's `edit`, `bash`, `task`, or outer `"*"`. Project defaults remain role-specific and auditors still receive their built-in report-only prompts.
+
+A permission override changes technical capability only; it does not change prompt semantics or grant task-level user authorization. Users who intentionally extend a role's semantics need their own agent or prompt strategy outside this option surface. This is a trusted local-only operator surface. Restart OpenCode after changing tuple options so the plugin is reloaded.
 
 ### Obsidian wiki access
 
