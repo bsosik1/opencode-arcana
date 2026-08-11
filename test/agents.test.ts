@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { Config } from "@opencode-ai/plugin"
 import { ACTIVE_SUBAGENTS, configureAgents } from "../src/configure-agents.ts"
 import { DEFAULT_OPTIONS } from "../src/options.ts"
+import type { ArcanaOptions } from "../src/options.ts"
 import { loadPrompts } from "../src/prompts.ts"
 
 describe("configureAgents", () => {
@@ -24,7 +25,7 @@ describe("configureAgents", () => {
 
   test("gives every agent its own exact model selection", async () => {
     const config = {} as Config
-    const options = {
+    const options: ArcanaOptions = {
       models: {
         magician: { model: "example/magician", variant: "high" },
         "knight-of-swords": { model: "example/fast", variant: "low" },
@@ -176,6 +177,224 @@ describe("configureAgents", () => {
       expect(resolveBashRule(bash, "Get-Date -Format")).toBe("deny")
       expect(resolveBashRule(bash, "Write-Output unsafe")).toBe("deny")
     }
+  })
+
+  test("keeps every baseline permission exact when no override is supplied", async () => {
+    const config = {} as Config
+    configureAgents(config, DEFAULT_OPTIONS, await loadPrompts())
+
+    expect(Object.keys(config.agent?.magician?.permission ?? {})).toEqual([
+      "question",
+      "todowrite",
+      "edit",
+      "task",
+      "bash",
+    ])
+    expect(Object.keys(config.agent?.hermit?.permission ?? {})).toEqual([
+      "question",
+      "todowrite",
+      "task",
+      "edit",
+      "bash",
+    ])
+    expect(Object.keys(config.agent?.justice?.permission ?? {})).toEqual([
+      "*",
+      "read",
+      "glob",
+      "grep",
+      "edit",
+      "task",
+      "todowrite",
+      "question",
+      "webfetch",
+      "websearch",
+      "skill",
+      "bash",
+    ])
+  })
+
+  test("applies one agent override without changing the other agents", async () => {
+    const baseline = {} as Config
+    const configured = {} as Config
+    const prompts = await loadPrompts()
+    configureAgents(baseline, DEFAULT_OPTIONS, prompts)
+    configureAgents(
+      configured,
+      {
+        ...DEFAULT_OPTIONS,
+        permissions: { hermit: { edit: "deny" } },
+      },
+      prompts,
+    )
+
+    for (const name of ["magician", "knight-of-swords", "page-of-swords", "justice"] as const) {
+      expect(configured.agent?.[name]?.permission).toEqual(baseline.agent?.[name]?.permission)
+    }
+    expect(configured.agent?.hermit?.permission?.edit).toBe("deny")
+  })
+
+  test("replaces scalars and lifts scalar baselines to ordered maps", async () => {
+    const config = {} as Config
+    configureAgents(
+      config,
+      {
+        ...DEFAULT_OPTIONS,
+        permissions: {
+          hermit: { bash: "deny" },
+          "knight-of-swords": { edit: { "*": "deny", "src/**": "allow" } },
+        },
+      },
+      await loadPrompts(),
+    )
+
+    expect(config.agent?.hermit?.permission?.bash).toBe("deny")
+    expect(config.agent?.["knight-of-swords"]?.permission?.edit as unknown as Record<string, string>).toEqual({
+      "*": "deny",
+      "src/**": "allow",
+    })
+  })
+
+  test("merges maps by retaining unoverridden patterns and appending local declarations", async () => {
+    const config = {} as Config
+    configureAgents(
+      config,
+      {
+        ...DEFAULT_OPTIONS,
+        permissions: {
+          magician: {
+            bash: {
+              "*": "deny",
+              "git status*": "allow",
+              "git diff*": "deny",
+            },
+          },
+        },
+      },
+      await loadPrompts(),
+    )
+
+    const bash = config.agent?.magician?.permission?.bash as Record<string, string>
+    expect(Object.keys(bash).slice(-3)).toEqual(["*", "git status*", "git diff*"])
+    expect(resolveBashRule(bash, "git status feature")).toBe("allow")
+    expect(resolveBashRule(bash, "git diff feature")).toBe("deny")
+    expect(resolveBashRule(bash, "Write-Output unsafe")).toBe("deny")
+  })
+
+  test("allows trusted implementation agents to choose explicit Bash allow and deny rules", async () => {
+    const config = {} as Config
+    configureAgents(
+      config,
+      {
+        ...DEFAULT_OPTIONS,
+        permissions: {
+          hermit: { bash: { "*": "deny", "bun run check*": "allow" } },
+          "knight-of-swords": { bash: { "git status*": "deny", "git diff*": "allow" } },
+        },
+      },
+      await loadPrompts(),
+    )
+
+    expect(resolveBashRule(config.agent?.hermit?.permission?.bash as Record<string, string>, "bun run check")).toBe(
+      "allow",
+    )
+    expect(resolveBashRule(config.agent?.hermit?.permission?.bash as Record<string, string>, "rm -rf temp")).toBe(
+      "deny",
+    )
+    expect(
+      resolveBashRule(config.agent?.["knight-of-swords"]?.permission?.bash as Record<string, string>, "git diff file"),
+    ).toBe("allow")
+    expect(
+      resolveBashRule(config.agent?.["knight-of-swords"]?.permission?.bash as Record<string, string>, "git status"),
+    ).toBe("deny")
+  })
+
+  test("permits Magician changes only for existing task targets", async () => {
+    const config = {} as Config
+    configureAgents(
+      config,
+      {
+        ...DEFAULT_OPTIONS,
+        permissions: { magician: { task: { hermit: "ask", justice: "deny" } } },
+      },
+      await loadPrompts(),
+    )
+
+    expect((config.agent?.magician?.permission as Record<string, unknown>).task).toEqual({
+      "*": "deny",
+      "knight-of-swords": "allow",
+      hermit: "ask",
+      "page-of-swords": "allow",
+      justice: "deny",
+    })
+  })
+
+  test("keeps auditors read-only while allowing only safe restrictions", async () => {
+    const config = {} as Config
+    configureAgents(
+      config,
+      {
+        ...DEFAULT_OPTIONS,
+        permissions: {
+          "page-of-swords": {
+            read: { "**/*.md": "deny" },
+            bash: "deny",
+            external_directory: "deny",
+            glob: "deny",
+            skill: { "web-*": "deny" },
+            webfetch: "deny",
+          },
+        },
+      },
+      await loadPrompts(),
+    )
+
+    const permission = config.agent?.["page-of-swords"]?.permission as Record<string, unknown>
+    expect(permission["*"]).toBe("deny")
+    expect(permission.edit).toBe("deny")
+    expect(permission.task).toBe("deny")
+    expect(permission.todowrite).toBe("deny")
+    expect(permission.question).toBe("deny")
+    expect(permission.bash).toBe("deny")
+    expect(permission.external_directory).toBe("deny")
+    expect(permission.read).toMatchObject({ "**/*.md": "deny" })
+    expect(permission.glob).toBe("deny")
+    expect(permission.skill).toEqual({ "*": "allow", "web-*": "deny" })
+  })
+
+  test("merges wikiPath external-directory rules after local restrictions", async () => {
+    const config = {} as Config
+    const wikiPath = "C:/data/example-vault"
+    configureAgents(
+      config,
+      {
+        ...DEFAULT_OPTIONS,
+        wikiPath,
+        permissions: { hermit: { external_directory: { [wikiPath]: "deny" } } },
+      },
+      await loadPrompts(),
+    )
+
+    expect(config.agent?.hermit?.permission?.external_directory as unknown as Record<string, string>).toEqual({
+      "*": "ask",
+      [`${wikiPath}/**`]: "allow",
+      [wikiPath]: "deny",
+    })
+  })
+
+  test("does not leak permission state across sequential configure calls", async () => {
+    const prompts = await loadPrompts()
+    const options: ArcanaOptions = {
+      ...DEFAULT_OPTIONS,
+      permissions: { hermit: { bash: { "*": "deny", "bun test*": "allow" } } },
+    }
+    const first = {} as Config
+    const second = {} as Config
+    configureAgents(first, options, prompts)
+    ;(first.agent?.hermit?.permission?.bash as Record<string, string>)["mutated"] = "allow"
+    configureAgents(second, options, prompts)
+
+    expect(second.agent?.hermit?.permission?.bash).not.toHaveProperty("mutated")
+    expect(second.agent?.magician?.permission).not.toBe(first.agent?.magician?.permission)
   })
 })
 

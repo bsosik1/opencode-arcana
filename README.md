@@ -268,6 +268,50 @@ The plugin accepts a `models` option and an optional `wikiPath` option. All five
 | `models["page-of-swords"]` | Page of Swords | `opencode-go/deepseek-v4-flash` - `max` |
 | `models.justice` | Justice | `openai/gpt-5.6-luna` - `xhigh` |
 
+### Permission overrides
+
+The tuple also accepts an optional, strictly validated `permissions` object. It is a local operator surface, separate from the public defaults and `models`; omitted roles and tools retain Arcana's current permission defaults. The repository adds no active local permission choices; this synthetic example shows the opt-in shape:
+
+```json
+{
+  "plugin": [
+    [
+      "file:///absolute/path/to/arcana",
+      {
+        "permissions": {
+          "hermit": {
+            "bash": {
+              "*": "ask",
+              "bun run check*": "allow",
+              "synthetic-review-command*": "deny"
+            }
+          },
+          "page-of-swords": {
+            "read": {
+              "**/synthetic-generated/**": "deny"
+            },
+            "glob": "deny"
+          }
+        }
+      }
+    ]
+  ]
+}
+```
+
+Permission values are either one scalar action (`allow`, `ask`, or `deny`) or an ordered pattern map for granular permissions. A scalar replaces the complete baseline rule. A pattern map overlays it: when the baseline is scalar it is lifted to `{ "*": baseline }`; when both are maps, baseline patterns not named locally remain in their original order and local patterns are appended in declaration order. Overridden top-level permission keys are appended after untouched baseline keys. OpenCode evaluates matching patterns in order, so the last matching rule wins; a repeated local pattern is deliberately re-appended so its local action wins predictably.
+
+Granular-capable keys are `read`, `edit`, `glob`, `grep`, `list`, `bash`, `task`, `external_directory`, `lsp`, and `skill`. Scalar-only keys are `todowrite`, `question`, `webfetch`, `websearch`, and `doom_loop`; outer `"*"` is scalar-only and must remain `"deny"`.
+
+The parser accepts only the five Arcana agent IDs and the documented OpenCode 1.18.x permission keys. The immutable role envelope is:
+
+- Every role keeps outer `"*"` at `"deny"`.
+- The Magician's `task` may be scalar `"deny"`, or may change actions only for the four existing worker IDs; it cannot add targets and its `"*"` remains `"deny"`.
+- Knight of Swords and The Hermit cannot override `task` and therefore cannot delegate.
+- Page of Swords and Justice cannot override `edit`, `task`, `todowrite`, `question`, `list`, `lsp`, or `doom_loop`. Their `read`, `bash`, and `external_directory` overrides are deny-only; they remain read-only, non-delegating, without todos/questions, general shell, external paths, or writes.
+
+Implementation-agent permission changes are trusted operator choices within those envelopes; they are technical capabilities, not task-level authorization. Prompts, explicit user authorization, scope, and persistent constraints remain authoritative. `--auto` changes how `ask` is handled; it never changes an explicit `deny`. Restart OpenCode after changing tuple options so the plugin is reloaded.
+
 
 ### Obsidian wiki access
 
@@ -281,11 +325,17 @@ The public reproducible baseline is:
 bun run check
 ```
 
-This currently runs TypeScript checking plus **124 tests and 547 assertions**. After installation, `opencode debug config` can be used to inspect the resolved OpenCode configuration and confirm the active five-role model tuple plus `wikiPath`:
+This currently runs TypeScript checking plus **141 tests and 636 assertions**. After installation, restart OpenCode and distinguish the two inspections:
 
 ```sh
+# Raw tuple/options as resolved from configuration
 opencode debug config
+# Effective injected agent configuration, including permissions
+opencode debug agent magician
+opencode debug agent hermit
 ```
+
+`opencode debug config` alone does not prove the plugin-injected effective permissions; use `opencode debug agent <name>` for that agent-level inspection. The commands above are available in the supported OpenCode 1.18.x CLI.
 
 ## Project structure
 
@@ -294,7 +344,7 @@ src/
   server.ts                     Server plugin entrypoint
   tui.ts                        TUI entrypoint and sidebar registration; native child-session navigation
   agents.ts                     Shared Arcana identities and assistant ordering
-  options.ts                    Model defaults, wikiPath, and option validation
+  options.ts                    Model, wikiPath, permission options, and validation
   configure-agents.ts           Agent and permission configuration
   configure-commands.ts         Explicit command registration
   magician-assistants-state.ts  History, counting, activity, pagination, and reliability state

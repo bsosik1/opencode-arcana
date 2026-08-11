@@ -1,5 +1,5 @@
 import type { Config } from "@opencode-ai/plugin"
-import type { ArcanaOptions } from "./options.ts"
+import type { AgentPermissionOverrides, ArcanaOptions, PermissionPatternMap, PermissionRule } from "./options.ts"
 import type { Prompts } from "./prompts.ts"
 
 export const ACTIVE_SUBAGENTS = [
@@ -20,7 +20,7 @@ export function configureAgents(config: Config, options: ArcanaOptions, prompts:
       variant: options.models.magician.variant,
       color: "#F97316",
       prompt: prompts.magician,
-      permission: magicianPermission(options.wikiPath),
+      permission: overlayPermission(magicianPermission(options.wikiPath), options.permissions?.magician),
     },
     "knight-of-swords": {
       description:
@@ -30,7 +30,10 @@ export function configureAgents(config: Config, options: ArcanaOptions, prompts:
       model: options.models["knight-of-swords"].model,
       variant: options.models["knight-of-swords"].variant,
       prompt: prompts.knightOfSwords,
-      permission: implementationPermission(options.wikiPath),
+      permission: overlayPermission(
+        implementationPermission(options.wikiPath),
+        options.permissions?.["knight-of-swords"],
+      ),
     },
     hermit: {
       description:
@@ -40,7 +43,7 @@ export function configureAgents(config: Config, options: ArcanaOptions, prompts:
       model: options.models.hermit.model,
       variant: options.models.hermit.variant,
       prompt: prompts.hermit,
-      permission: implementationPermission(options.wikiPath),
+      permission: overlayPermission(implementationPermission(options.wikiPath), options.permissions?.hermit),
     },
     "page-of-swords": {
       description: "Page of Swords / Fast Audit. Independent read-only auditor for focused checks and quick validation.",
@@ -49,7 +52,10 @@ export function configureAgents(config: Config, options: ArcanaOptions, prompts:
       model: options.models["page-of-swords"].model,
       variant: options.models["page-of-swords"].variant,
       prompt: prompts.pageOfSwords,
-      permission: auditPermission(options.wikiPath),
+      permission: overlayPermission(
+        auditPermission(options.wikiPath),
+        options.permissions?.["page-of-swords"],
+      ),
     },
     justice: {
       description: "Justice / Deep Audit. Independent read-only auditor for thorough behavioral and architectural validation.",
@@ -58,12 +64,12 @@ export function configureAgents(config: Config, options: ArcanaOptions, prompts:
       model: options.models.justice.model,
       variant: options.models.justice.variant,
       prompt: prompts.justice,
-      permission: auditPermission(options.wikiPath),
+      permission: overlayPermission(auditPermission(options.wikiPath), options.permissions?.justice),
     },
   }
 }
 
-function magicianPermission(wikiPath?: string) {
+function magicianPermission(wikiPath?: string): Record<string, PermissionRule> {
   return {
     question: "allow" as const,
     todowrite: "allow" as const,
@@ -80,7 +86,7 @@ function magicianPermission(wikiPath?: string) {
   }
 }
 
-function implementationPermission(wikiPath?: string) {
+function implementationPermission(wikiPath?: string): Record<string, PermissionRule> {
   return {
     question: "deny" as const,
     todowrite: "allow" as const,
@@ -91,7 +97,7 @@ function implementationPermission(wikiPath?: string) {
   }
 }
 
-function auditPermission(wikiPath?: string) {
+function auditPermission(wikiPath?: string): Record<string, PermissionRule> {
   return {
     "*": "deny" as const,
     read: {
@@ -143,7 +149,7 @@ function auditPermission(wikiPath?: string) {
   }
 }
 
-function safeImplementationBash() {
+function safeImplementationBash(): PermissionPatternMap {
   return {
     "*": "ask" as const,
     "Get-Date": "allow" as const,
@@ -209,15 +215,53 @@ function safeImplementationBash() {
   }
 }
 
-function wikiExternalDirectory(wikiPath: string | undefined, fallback: "ask" | "deny") {
+function wikiExternalDirectory(wikiPath: string | undefined, fallback: "ask" | "deny"): Record<string, PermissionRule> {
   if (wikiPath === undefined) return {}
   return {
-    // OpenCode 1.18.13 accepts pattern objects at runtime; its generated plugin type
-    // still narrows external_directory to an action, so cast only this property.
     external_directory: {
       "*": fallback,
       [wikiPath]: "allow" as const,
       [`${wikiPath}/**`]: "allow" as const,
-    } as unknown as "allow" | "ask" | "deny",
+    },
   }
+}
+
+function overlayPermission(
+  baseline: Record<string, PermissionRule>,
+  overrides: AgentPermissionOverrides["magician"] | undefined,
+): Record<string, PermissionRule> {
+  const overriddenKeys = new Set(overrides === undefined ? [] : Object.keys(overrides))
+  const result: Record<string, PermissionRule> = {}
+
+  for (const key of Object.keys(baseline)) {
+    if (!overriddenKeys.has(key)) result[key] = clonePermissionRule(baseline[key])
+  }
+  for (const key of Object.keys(overrides ?? {})) {
+    const localRule = overrides?.[key as keyof typeof overrides]
+    if (localRule === undefined) continue
+    result[key] = mergePermissionRule(baseline[key], localRule)
+  }
+  return result
+}
+
+function mergePermissionRule(baseline: PermissionRule | undefined, override: PermissionRule): PermissionRule {
+  if (typeof override === "string") return override
+
+  const baselineMap: PermissionPatternMap =
+    baseline === undefined ? {} : typeof baseline === "string" ? { "*": baseline } : baseline
+  const overriddenPatterns = new Set(Object.keys(override))
+  const merged: PermissionPatternMap = {}
+
+  for (const pattern of Object.keys(baselineMap)) {
+    if (!overriddenPatterns.has(pattern)) merged[pattern] = baselineMap[pattern]
+  }
+  for (const pattern of Object.keys(override)) merged[pattern] = override[pattern]
+  return merged
+}
+
+function clonePermissionRule(rule: PermissionRule): PermissionRule {
+  if (typeof rule === "string") return rule
+  const clone: PermissionPatternMap = {}
+  for (const pattern of Object.keys(rule)) clone[pattern] = rule[pattern]
+  return clone
 }
