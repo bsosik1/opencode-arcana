@@ -1,5 +1,5 @@
 import type { Config } from "@opencode-ai/plugin"
-import type { AgentPermissionOverrides, ArcanaOptions, PermissionPatternMap, PermissionRule } from "./options.ts"
+import type { ArcanaOptions, PermissionOverrides, PermissionPatternMap, PermissionRule } from "./options.ts"
 import type { Prompts } from "./prompts.ts"
 
 export const ACTIVE_SUBAGENTS = [
@@ -16,23 +16,23 @@ export function configureAgents(config: Config, options: ArcanaOptions, prompts:
       description:
         "The Magician / Primary orchestrator. Analyzes software work, routes bounded tasks to native workers, and verifies integrated results.",
       mode: "primary",
-      model: options.models.magician.model,
-      variant: options.models.magician.variant,
+      model: options.agents.magician.model,
+      variant: options.agents.magician.variant,
       color: "#F97316",
       prompt: prompts.magician,
-      permission: overlayPermission(magicianPermission(options.wikiPath), options.permissions?.magician),
+      permission: overlayPermission(magicianPermission(options.wikiPath), options.agents.magician.permission),
     },
     "knight-of-swords": {
       description:
         "Knight of Swords / Fast implementation. Use for clear, bounded, low-ambiguity work, including multi-file changes; never use for architecture or broad debugging.",
       mode: "subagent",
       hidden: true,
-      model: options.models["knight-of-swords"].model,
-      variant: options.models["knight-of-swords"].variant,
+      model: options.agents["knight-of-swords"].model,
+      variant: options.agents["knight-of-swords"].variant,
       prompt: prompts.knightOfSwords,
       permission: overlayPermission(
         implementationPermission(options.wikiPath),
-        options.permissions?.["knight-of-swords"],
+        options.agents["knight-of-swords"].permission,
       ),
     },
     hermit: {
@@ -40,31 +40,31 @@ export function configureAgents(config: Config, options: ArcanaOptions, prompts:
         "The Hermit / Deep implementation. Use for complex, ambiguous, architectural, root-cause, security, concurrency, migration, or data-sensitive work.",
       mode: "subagent",
       hidden: true,
-      model: options.models.hermit.model,
-      variant: options.models.hermit.variant,
+      model: options.agents.hermit.model,
+      variant: options.agents.hermit.variant,
       prompt: prompts.hermit,
-      permission: overlayPermission(implementationPermission(options.wikiPath), options.permissions?.hermit),
+      permission: overlayPermission(implementationPermission(options.wikiPath), options.agents.hermit.permission),
     },
     "page-of-swords": {
       description: "Page of Swords / Fast Audit. Independent read-only auditor for focused checks and quick validation.",
       mode: "subagent",
       hidden: true,
-      model: options.models["page-of-swords"].model,
-      variant: options.models["page-of-swords"].variant,
+      model: options.agents["page-of-swords"].model,
+      variant: options.agents["page-of-swords"].variant,
       prompt: prompts.pageOfSwords,
       permission: overlayPermission(
         auditPermission(options.wikiPath),
-        options.permissions?.["page-of-swords"],
+        options.agents["page-of-swords"].permission,
       ),
     },
     justice: {
       description: "Justice / Deep Audit. Independent read-only auditor for thorough behavioral and architectural validation.",
       mode: "subagent",
       hidden: true,
-      model: options.models.justice.model,
-      variant: options.models.justice.variant,
+      model: options.agents.justice.model,
+      variant: options.agents.justice.variant,
       prompt: prompts.justice,
-      permission: overlayPermission(auditPermission(options.wikiPath), options.permissions?.justice),
+      permission: overlayPermission(auditPermission(options.wikiPath), options.agents.justice.permission),
     },
   }
 }
@@ -228,7 +228,7 @@ function wikiExternalDirectory(wikiPath: string | undefined, fallback: "ask" | "
 
 function overlayPermission(
   baseline: Record<string, PermissionRule>,
-  overrides: AgentPermissionOverrides["magician"] | undefined,
+  overrides: PermissionOverrides | undefined,
 ): Record<string, PermissionRule> {
   const overriddenKeys = new Set(overrides === undefined ? [] : Object.keys(overrides))
   const result: Record<string, PermissionRule> = {}

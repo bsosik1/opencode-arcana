@@ -27,24 +27,19 @@ export type PermissionKey =
   | "websearch"
   | "doom_loop"
 
-export type AgentPermissionOverrides = Partial<
-  Record<ArcanaAgentId, Partial<Record<PermissionKey, PermissionRule>>>
->
+export type PermissionOverrides = Partial<Record<PermissionKey, PermissionRule>>
+
+export type AgentOptions = ModelSelection & {
+  permission?: PermissionOverrides
+}
 
 export type ArcanaOptions = {
-  models: {
-    magician: ModelSelection
-    "knight-of-swords": ModelSelection
-    hermit: ModelSelection
-    "page-of-swords": ModelSelection
-    justice: ModelSelection
-  }
+  agents: Record<ArcanaAgentId, AgentOptions>
   wikiPath?: string
-  permissions?: AgentPermissionOverrides
 }
 
 export const DEFAULT_OPTIONS: ArcanaOptions = {
-  models: {
+  agents: {
     magician: { model: "openai/gpt-5.6-sol", variant: "xhigh" },
     "knight-of-swords": { model: "opencode-go/deepseek-v4-flash", variant: "max" },
     hermit: { model: "openai/gpt-5.6-luna", variant: "xhigh" },
@@ -57,40 +52,34 @@ export function parseOptions(input?: PluginOptions): ArcanaOptions {
   if (input === undefined) return structuredClone(DEFAULT_OPTIONS)
   assertPlainRecord(input, "Arcana plugin options")
 
-  rejectUnknownKeys(input, ["models", "wikiPath", "permissions"], "Arcana plugin options")
+  rejectUnknownKeys(input, ["agents", "wikiPath"], "Arcana plugin options")
 
-  const models = input.models === undefined ? structuredClone(DEFAULT_OPTIONS.models) : parseModels(input.models)
+  const agents = input.agents === undefined ? structuredClone(DEFAULT_OPTIONS.agents) : parseAgents(input.agents)
   const wikiPath = input.wikiPath === undefined ? undefined : parseWikiPath(input.wikiPath)
-  const permissions = input.permissions === undefined ? undefined : parsePermissions(input.permissions)
   return {
-    models,
+    agents,
     ...(wikiPath === undefined ? {} : { wikiPath }),
-    ...(permissions === undefined ? {} : { permissions }),
   }
 }
 
-function parseModels(input: unknown): ArcanaOptions["models"] {
-  assertPlainRecord(input, "Arcana option models")
+function parseAgents(input: unknown): ArcanaOptions["agents"] {
+  assertPlainRecord(input, "Arcana option agents")
 
-  rejectUnknownKeys(
-    input,
-    ["magician", "knight-of-swords", "hermit", "page-of-swords", "justice"],
-    "Arcana option models",
-  )
+  rejectUnknownKeys(input, [...ARCANA_AGENT_IDS], "Arcana option agents")
   return {
-    magician: parseModel("magician", input.magician, DEFAULT_OPTIONS.models.magician),
-    "knight-of-swords": parseModel(
+    magician: parseAgent("magician", input.magician, DEFAULT_OPTIONS.agents.magician),
+    "knight-of-swords": parseAgent(
       "knight-of-swords",
       input["knight-of-swords"],
-      DEFAULT_OPTIONS.models["knight-of-swords"],
+      DEFAULT_OPTIONS.agents["knight-of-swords"],
     ),
-    hermit: parseModel("hermit", input.hermit, DEFAULT_OPTIONS.models.hermit),
-    "page-of-swords": parseModel(
+    hermit: parseAgent("hermit", input.hermit, DEFAULT_OPTIONS.agents.hermit),
+    "page-of-swords": parseAgent(
       "page-of-swords",
       input["page-of-swords"],
-      DEFAULT_OPTIONS.models["page-of-swords"],
+      DEFAULT_OPTIONS.agents["page-of-swords"],
     ),
-    justice: parseModel("justice", input.justice, DEFAULT_OPTIONS.models.justice),
+    justice: parseAgent("justice", input.justice, DEFAULT_OPTIONS.agents.justice),
   }
 }
 
@@ -136,22 +125,36 @@ function isFilesystemRoot(value: string): boolean {
   return value === "/" || /^\/[\/]?$/.test(value) || /^[A-Za-z]:\/$/.test(value) || /^\/\/[^/]+\/[^/]+\/?$/.test(value)
 }
 
-function parseModel(name: string, input: unknown, fallback: ModelSelection): ModelSelection {
-  if (input === undefined) return { ...fallback }
-  assertPlainRecord(input, `Arcana model ${name}`)
+function parseAgent(name: ArcanaAgentId, input: unknown, fallback: AgentOptions): AgentOptions {
+  if (input === undefined) return cloneAgentOptions(fallback)
+  assertPlainRecord(input, `Arcana agent ${name}`)
 
-  rejectUnknownKeys(input, ["model", "variant"], `Arcana model ${name}`)
+  rejectUnknownKeys(input, ["model", "variant", "permission"], `Arcana agent ${name}`)
   const model = input.model === undefined ? fallback.model : input.model
   const variant = input.variant === undefined ? fallback.variant : input.variant
 
   if (typeof model !== "string" || !/^[^/\s]+\/\S+$/.test(model)) {
-    throw new TypeError(`Arcana model ${name}.model must use the provider/model format`)
+    throw new TypeError(`Arcana agent ${name}.model must use the provider/model format`)
   }
   if (variant !== undefined && (typeof variant !== "string" || !variant.trim())) {
-    throw new TypeError(`Arcana model ${name}.variant must be a non-empty string`)
+    throw new TypeError(`Arcana agent ${name}.variant must be a non-empty string`)
   }
 
-  return { model, ...(variant === undefined ? {} : { variant }) }
+  const permission =
+    input.permission === undefined ? undefined : parsePermissionOverrides(input.permission, `${name}.permission`)
+  return {
+    model,
+    ...(variant === undefined ? {} : { variant }),
+    ...(permission === undefined ? {} : { permission }),
+  }
+}
+
+function cloneAgentOptions(agent: AgentOptions): AgentOptions {
+  return {
+    model: agent.model,
+    ...(agent.variant === undefined ? {} : { variant: agent.variant }),
+    ...(agent.permission === undefined ? {} : { permission: clonePermissionOverrides(agent.permission) }),
+  }
 }
 
 function rejectUnknownKeys(input: Record<string, unknown>, allowed: string[], label: string) {
@@ -159,7 +162,7 @@ function rejectUnknownKeys(input: Record<string, unknown>, allowed: string[], la
   if (unknown.length) throw new TypeError(`${label} contains unknown option: ${unknown.join(", ")}`)
 }
 
-const ARCANA_AGENT_IDS = ["magician", "knight-of-swords", "hermit", "page-of-swords", "justice"] as const
+const ARCANA_AGENT_IDS = ["magician", "knight-of-swords", "hermit", "page-of-swords", "justice"] as const satisfies readonly ArcanaAgentId[]
 const GRANULAR_PERMISSION_KEYS = new Set<PermissionKey>([
   "read",
   "edit",
@@ -199,32 +202,28 @@ const PERMISSION_KEYS = [
 ] as const
 const DANGEROUS_KEYS = new Set(["__proto__", "prototype", "constructor"])
 
-function parsePermissions(input: unknown): AgentPermissionOverrides {
-  assertPlainRecord(input, "Arcana option permissions")
-  const agentKeys = Object.getOwnPropertyNames(input)
-  if (agentKeys.length === 0) throw new TypeError("Arcana option permissions must not be empty")
-  rejectUnknownKeys(input, [...ARCANA_AGENT_IDS], "Arcana option permissions")
-
-  const permissions: AgentPermissionOverrides = {}
-  for (const agent of agentKeys) {
-    const roleInput = input[agent]
-    assertPlainRecord(roleInput, `Arcana permissions for ${agent}`)
-    const roleKeys = Object.getOwnPropertyNames(roleInput)
-    if (roleKeys.length === 0) throw new TypeError(`Arcana permissions for ${agent} must not be empty`)
-
-    const rolePermissions: Partial<Record<PermissionKey, PermissionRule>> = {}
-    for (const key of roleKeys) {
-      if (!(PERMISSION_KEYS as readonly string[]).includes(key)) {
-        throw new TypeError(`Arcana permissions for ${agent} contains unknown permission: ${key}`)
-      }
-      const rule = parsePermissionRule(key as PermissionKey, roleInput[key], `${agent}.${key}`)
-      validateRoleEnvelope(agent as ArcanaAgentId, key as PermissionKey, rule)
-      rolePermissions[key as PermissionKey] = rule
+function parsePermissionOverrides(input: unknown, label: string): PermissionOverrides {
+  assertPlainRecord(input, `Arcana permission ${label}`)
+  const permissionKeys = Object.getOwnPropertyNames(input)
+  const permissions: PermissionOverrides = {}
+  for (const key of permissionKeys) {
+    if (!(PERMISSION_KEYS as readonly string[]).includes(key)) {
+      throw new TypeError(`Arcana permission ${label} contains unknown permission: ${key}`)
     }
-    permissions[agent as ArcanaAgentId] = rolePermissions
+    permissions[key as PermissionKey] = parsePermissionRule(key as PermissionKey, input[key], `${label}.${key}`)
   }
 
   return permissions
+}
+
+function clonePermissionOverrides(input: PermissionOverrides): PermissionOverrides {
+  const clone: PermissionOverrides = {}
+  for (const key of Object.keys(input) as PermissionKey[]) {
+    const rule = input[key]
+    if (rule === undefined) continue
+    clone[key] = typeof rule === "string" ? rule : { ...rule }
+  }
+  return clone
 }
 
 function parsePermissionRule(key: PermissionKey, input: unknown, label: string): PermissionRule {
@@ -266,55 +265,6 @@ function validatePatternKey(pattern: string, label: string) {
     throw new TypeError(`Arcana permission ${label} contains a numeric pattern key`)
   }
 }
-
-function validateRoleEnvelope(agent: ArcanaAgentId, key: PermissionKey, rule: PermissionRule) {
-  if (key === "*" && rule !== "deny") {
-    throw new TypeError(`Arcana permissions for ${agent} must keep the outer * permission denied`)
-  }
-
-  if (agent === "magician" && key === "task") {
-    if (typeof rule === "string") {
-      if (rule !== "deny") throw new TypeError("Arcana magician.task may only be deny when scalar")
-      return
-    }
-    for (const target of Object.getOwnPropertyNames(rule)) {
-      if (target === "*") {
-        if (rule[target] !== "deny") throw new TypeError("Arcana magician.task.* may only be deny")
-      } else if (!(ACTIVE_WORKER_IDS as readonly string[]).includes(target)) {
-        throw new TypeError(`Arcana magician.task contains an unknown target: ${target}`)
-      }
-    }
-    return
-  }
-
-  if ((agent === "knight-of-swords" || agent === "hermit") && key === "task") {
-    throw new TypeError(`Arcana ${agent} task permission is immutable`)
-  }
-
-  if ((agent === "page-of-swords" || agent === "justice") && AUDITOR_FORBIDDEN_KEYS.has(key)) {
-    throw new TypeError(`Arcana ${agent}.${key} permission is immutable`)
-  }
-
-  if (
-    (agent === "page-of-swords" || agent === "justice") &&
-    AUDITOR_DENY_ONLY_KEYS.has(key) &&
-    (rule === "allow" || rule === "ask" || (typeof rule !== "string" && Object.values(rule).some((action) => action !== "deny")))
-  ) {
-    throw new TypeError(`Arcana ${agent}.${key} may only be denied`)
-  }
-}
-
-const ACTIVE_WORKER_IDS = ["knight-of-swords", "hermit", "page-of-swords", "justice"] as const
-const AUDITOR_FORBIDDEN_KEYS = new Set<PermissionKey>([
-  "edit",
-  "task",
-  "todowrite",
-  "question",
-  "list",
-  "lsp",
-  "doom_loop",
-])
-const AUDITOR_DENY_ONLY_KEYS = new Set<PermissionKey>(["read", "bash", "external_directory"])
 
 function assertPlainRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!isPlainRecord(value)) throw new TypeError(`${label} must be a plain object`)

@@ -195,29 +195,14 @@ Load the server plugin exactly once in the global `opencode.json`. Preserve unre
     [
       "file:///absolute/path/to/arcana",
       {
-        "models": {
-          "magician": {
-            "model": "openai/gpt-5.6-sol",
-            "variant": "xhigh"
-          },
-          "knight-of-swords": {
-            "model": "opencode-go/deepseek-v4-flash",
-            "variant": "max"
-          },
-          "hermit": {
-            "model": "openai/gpt-5.6-luna",
-            "variant": "xhigh"
-          },
-          "page-of-swords": {
-            "model": "opencode-go/deepseek-v4-flash",
-            "variant": "max"
-          },
-          "justice": {
-            "model": "openai/gpt-5.6-luna",
-            "variant": "xhigh"
-          }
+        "agents": {
+          "magician": { "model": "provider/model", "variant": "high", "permission": { "bash": { "example-command*": "allow" } } },
+          "knight-of-swords": { "model": "provider/model", "variant": "max" },
+          "hermit": { "model": "provider/model", "variant": "high" },
+          "page-of-swords": { "model": "provider/model", "variant": "max" },
+          "justice": { "model": "provider/model", "variant": "max" }
         },
-        "wikiPath": "/absolute/path/to/your/obsidian-wiki"
+        "wikiPath": "/absolute/path/to/wiki"
       }
     ]
   ],
@@ -256,66 +241,18 @@ $env:OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS = "true"
 
 These commands affect the current shell. Persist the setting through a shell profile or user environment configuration when appropriate. OpenCode consumes this flag; Arcana documents the prerequisite but does not programmatically enforce it. Restart OpenCode after changing plugin configuration, including `wikiPath` or model entries, or environment variables.
 
-### Model overrides
+### Agent options
 
-The plugin accepts a `models` option and an optional `wikiPath` option. All five roles are independently configurable: each role may override `model` and `variant`, and omitted roles or fields retain their own defaults. Model IDs must use the `provider/model` format.
+The tuple accepts exactly `agents` and optional `wikiPath`. `agents` is partial: omitted roles keep their complete defaults, and omitted fields inside a role keep that role's default. Each role may set `model` (using `provider/model`), `variant`, and a singular `permission` overlay. An empty `permission` object is accepted as a no-op.
 
-| Option | Applies to | Default |
-| --- | --- | --- |
-| `models.magician` | The Magician primary agent | `openai/gpt-5.6-sol` - `xhigh` |
-| `models["knight-of-swords"]` | Knight of Swords | `opencode-go/deepseek-v4-flash` - `max` |
-| `models.hermit` | The Hermit | `openai/gpt-5.6-luna` - `xhigh` |
-| `models["page-of-swords"]` | Page of Swords | `opencode-go/deepseek-v4-flash` - `max` |
-| `models.justice` | Justice | `openai/gpt-5.6-luna` - `xhigh` |
+Permission values are either one scalar action (`allow`, `ask`, or `deny`) or an ordered pattern map for granular permissions. A scalar replaces the complete baseline rule. A pattern map overlays it: a scalar baseline is lifted to `{ "*": baseline }`, unchanged baseline patterns retain their order, and local patterns are appended. Repeated or matching local patterns are therefore resolved last; OpenCode's last matching rule wins. Supported granular keys are `read`, `edit`, `glob`, `grep`, `list`, `bash`, `task`, `external_directory`, `lsp`, and `skill`. `todowrite`, `question`, `webfetch`, `websearch`, `doom_loop`, and outer `"*"` are scalar-only. Unknown tools and malformed values are rejected for typo safety.
 
-### Permission overrides
-
-The tuple also accepts an optional, strictly validated `permissions` object. It is a local operator surface, separate from the public defaults and `models`; omitted roles and tools retain Arcana's current permission defaults. The repository adds no active local permission choices; this synthetic example shows the opt-in shape:
-
-```json
-{
-  "plugin": [
-    [
-      "file:///absolute/path/to/arcana",
-      {
-        "permissions": {
-          "hermit": {
-            "bash": {
-              "*": "ask",
-              "bun run check*": "allow",
-              "synthetic-review-command*": "deny"
-            }
-          },
-          "page-of-swords": {
-            "read": {
-              "**/synthetic-generated/**": "deny"
-            },
-            "glob": "deny"
-          }
-        }
-      }
-    ]
-  ]
-}
-```
-
-Permission values are either one scalar action (`allow`, `ask`, or `deny`) or an ordered pattern map for granular permissions. A scalar replaces the complete baseline rule. A pattern map overlays it: when the baseline is scalar it is lifted to `{ "*": baseline }`; when both are maps, baseline patterns not named locally remain in their original order and local patterns are appended in declaration order. Overridden top-level permission keys are appended after untouched baseline keys. OpenCode evaluates matching patterns in order, so the last matching rule wins; a repeated local pattern is deliberately re-appended so its local action wins predictably.
-
-Granular-capable keys are `read`, `edit`, `glob`, `grep`, `list`, `bash`, `task`, `external_directory`, `lsp`, and `skill`. Scalar-only keys are `todowrite`, `question`, `webfetch`, `websearch`, and `doom_loop`; outer `"*"` is scalar-only and must remain `"deny"`.
-
-The parser accepts only the five Arcana agent IDs and the documented OpenCode 1.18.x permission keys. The immutable role envelope is:
-
-- Every role keeps outer `"*"` at `"deny"`.
-- The Magician's `task` may be scalar `"deny"`, or may change actions only for the four existing worker IDs; it cannot add targets and its `"*"` remains `"deny"`.
-- Knight of Swords and The Hermit cannot override `task` and therefore cannot delegate.
-- Page of Swords and Justice cannot override `edit`, `task`, `todowrite`, `question`, `list`, `lsp`, or `doom_loop`. Their `read`, `bash`, and `external_directory` overrides are deny-only; they remain read-only, non-delegating, without todos/questions, general shell, external paths, or writes.
-
-Implementation-agent permission changes are trusted operator choices within those envelopes; they are technical capabilities, not task-level authorization. Prompts, explicit user authorization, scope, and persistent constraints remain authoritative. `--auto` changes how `ask` is handled; it never changes an explicit `deny`. Restart OpenCode after changing tuple options so the plugin is reloaded.
+Every role may technically override every supported permission, including an auditor's `edit`, `bash`, `task`, or outer `"*"`. Project defaults remain role-specific and auditors still receive their built-in report-only prompts. A permission override changes technical capability only; it does not change prompt semantics or grant task-level user authorization. Users who intentionally extend a role's semantics need their own agent or prompt strategy outside this option surface. This is a trusted local-only operator surface. Restart OpenCode after changing tuple options so the plugin is reloaded.
 
 
 ### Obsidian wiki access
 
-`wikiPath` is optional and must be a non-empty absolute Windows or POSIX path. Arcana normalizes separators, rejects filesystem roots, traversal segments, control/newline and prompt-injection characters, and rejects glob metacharacters without touching the filesystem. When configured, all five agents can access the exact root and recursive contents without repeated external-directory approval. The Magician, Knight, and Hermit retain `ask` behavior for other external paths; Page and Justice deny them.
+`wikiPath` is optional and must be a non-empty absolute Windows or POSIX path. Arcana normalizes separators, rejects filesystem roots, traversal segments, control/newline and prompt-injection characters, and rejects glob metacharacters without touching the filesystem. When configured, all five agents can access the exact root and recursive contents without repeated external-directory approval.
 
 ## Verification
 
@@ -325,7 +262,7 @@ The public reproducible baseline is:
 bun run check
 ```
 
-This currently runs TypeScript checking plus **141 tests and 636 assertions**. After installation, restart OpenCode and distinguish the two inspections:
+This currently runs TypeScript checking plus **127 tests and 571 assertions**. After installation, restart OpenCode and distinguish the two inspections:
 
 ```sh
 # Raw tuple/options as resolved from configuration
@@ -344,7 +281,7 @@ src/
   server.ts                     Server plugin entrypoint
   tui.ts                        TUI entrypoint and sidebar registration; native child-session navigation
   agents.ts                     Shared Arcana identities and assistant ordering
-  options.ts                    Model, wikiPath, permission options, and validation
+  options.ts                    Per-agent model, variant, permission, and wikiPath validation
   configure-agents.ts           Agent and permission configuration
   configure-commands.ts         Explicit command registration
   magician-assistants-state.ts  History, counting, activity, pagination, and reliability state
