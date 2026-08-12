@@ -16,6 +16,7 @@ export type MessageRecord = {
   info?: {
     id?: unknown
     sessionID?: unknown
+    role?: unknown
     time?: { created?: unknown }
   }
   parts?: readonly unknown[]
@@ -30,6 +31,9 @@ export type ToolPartLike = {
   state?: {
     status?: unknown
     input?: unknown
+    output?: unknown
+    error?: unknown
+    metadata?: unknown
   }
 }
 

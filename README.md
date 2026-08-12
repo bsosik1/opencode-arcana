@@ -152,6 +152,16 @@ The plugin also registers one command for native task children:
 
 Open a session before invoking the picker. The dialog shows the card title, functional role, runtime ID, session title, and current status, then navigates to the selected native session.
 
+The plugin also provides a read-mostly task dossier workflow:
+
+- `/dossiers` reconstructs one durable card for each relevant Arcana native `task` invocation in the complete root-session history.
+- `/tasks` is an alias for `/dossiers`.
+- `Ctrl+Shift+D` opens the same dossier picker.
+
+The command works from a root session or a direct child. It resolves the root, loads all history pages, reconciles direct-child status, and shows task, agent, native state, contract sections, and the latest native report when available. Compact list icons use a filled circle for active, an empty circle for needs verification, a check mark for completed, and a filled square for blocked or failed. A dossier can navigate to its root session, and to its child session only while the child is still among the current direct children; a stale raw child ID stays visible but navigation is disabled. These actions only change the viewed session: they never resume a task, call `session.prompt`, create a native task, change permissions, or alter authorization.
+
+Dossier status is deliberately conservative. `Active` covers pending/running native tasks and busy/retrying children. `Blocked/Failed` covers native or child failure, cancellation, and explicit BLOCKED/FAILED/ERROR reports. A successful worker invocation is `Needs verification` unless later root history contains successful verification text correlated by child-session ID or a unique task description. Generic verification text does not complete unrelated or parallel dossiers. Audits remain `Needs verification` even when their report is successful; an audit result never authorizes implementation. Missing or malformed native fields remain visible as unavailable details rather than invented values.
+
 ## Safety boundaries
 
 - Auditors are read-only. They can inspect permitted files with `read`, `glob`, and `grep`, use `webfetch`, `websearch`, and `skill` directly for assigned research, and run only exact `Get-Date`, `Get-Date -Format o`, `get-date`, or `get-date -format o` timestamp commands. They cannot edit, delegate, ask questions, write todos, or run other shell commands.
@@ -247,9 +257,9 @@ The tuple accepts exactly `agents` and optional `wikiPath`. The `agents` object 
 
 Each role may define:
 
-- `model` — a model ID in `provider/model` format;
-- `variant` — the provider-specific reasoning or performance variant;
-- `permission` — a singular object containing local permission overrides.
+- `model` - a model ID in `provider/model` format;
+- `variant` - the provider-specific reasoning or performance variant;
+- `permission` - a singular object containing local permission overrides.
 
 An empty `permission` object is accepted as a no-op.
 
@@ -257,8 +267,8 @@ An empty `permission` object is accepted as a no-op.
 
 Permission overrides use one of two value forms:
 
-- **Scalar action** — `"allow"`, `"ask"`, or `"deny"`. A scalar replaces the role's complete baseline rule for that permission.
-- **Granular pattern map** — an ordered map of patterns to actions. It is merged after the baseline: existing baseline patterns keep their order and local patterns are appended. OpenCode uses the last matching rule.
+- **Scalar action** - `"allow"`, `"ask"`, or `"deny"`. A scalar replaces the role's complete baseline rule for that permission.
+- **Granular pattern map** - an ordered map of patterns to actions. It is merged after the baseline: existing baseline patterns keep their order and local patterns are appended. OpenCode uses the last matching rule.
 
 Permission keys are grouped by the value forms they support:
 
@@ -305,7 +315,7 @@ The public reproducible baseline is:
 bun run check
 ```
 
-This currently runs TypeScript checking plus **127 tests and 571 assertions**. After installation, restart OpenCode and distinguish the two inspections:
+This currently runs TypeScript checking plus **147 tests and 626 assertions**. After installation, restart OpenCode and distinguish the two inspections:
 
 ```sh
 # Raw tuple/options as resolved from configuration
@@ -323,6 +333,8 @@ opencode debug agent hermit
 src/
   server.ts                     Server plugin entrypoint
   tui.ts                        TUI entrypoint and sidebar registration; native child-session navigation
+  task-dossiers.ts              Native task history reconstruction, contract parsing, and status rules
+  task-dossiers-tui.ts          Read-mostly dossier picker, details, and safe session navigation
   agents.ts                     Shared Arcana identities and assistant ordering
   options.ts                    Per-agent model, variant, permission, and wikiPath validation
   configure-agents.ts           Agent and permission configuration
@@ -348,6 +360,9 @@ package.json
 - There is no automatic model fallback. Provider failure is reported; only a substantive Knight of Swords complexity block can escalate to The Hermit.
 - Cross validation depends on OpenCode native background-task support and `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true`; the prerequisite is prompt/documentation-driven rather than programmatically enforced by Arcana.
 - Interactive TUI behavior after a full restart remains manually unverified, although the TUI entrypoint and child-session navigation are implemented.
+- Task dossiers are reconstructed from native root history and current direct-child metadata; they do not persist a second task record.
+- Child and result identifiers depend on the fields OpenCode includes in native task metadata. The UI reports unavailable fields when those records omit them.
+- Dossier completion is not implementation approval. Successful worker and audit records remain subject to the conservative verification rule documented above.
 
 ## License
 
