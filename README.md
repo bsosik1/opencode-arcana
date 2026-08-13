@@ -162,6 +162,16 @@ The command works from a root session or a direct child. It resolves the root, l
 
 Dossier status is deliberately conservative. `Active` covers pending/running native tasks and busy/retrying children. `Blocked/Failed` covers native or child failure, cancellation, and explicit BLOCKED/FAILED/ERROR reports. A successful worker invocation is `Needs verification` unless later root history contains successful verification text correlated by child-session ID or a unique task description. Generic verification text does not complete unrelated or parallel dossiers. Audits remain `Needs verification` even when their report is successful; an audit result never authorizes implementation. Missing or malformed native fields remain visible as unavailable details rather than invented values.
 
+## HANDOFF_CAPSULE v1
+
+Arcana's primary low-token transfer format is `HANDOFF_CAPSULE v1`: one deterministic ASCII-only fenced JSON block in every worker result, including blocked, failed, no-change, and report-only outcomes. It is source data for The Magician, not a task continuation API and never an authorization channel. The payload records an immutable contract snapshot/hash, unique per-invocation topic ownership, bounded evidence, current state, structured questions, authorization history, and a next review action. Unknown native or dossier identities are explicit `null`, never invented. The producer contract specifies the literal standalone sentinel and fence lines plus every field bound.
+
+Capsules target about 4,000 characters and have a hard 6,000-character full-framed cap. They allow at most 12 ownership entries, 8 evidence entries, 6 structured questions, 10 unique source locators, 20 changed files, and 16 checks. Compaction normalizes whitespace, removes duplicates, repairs references, and drops low-priority content, but never truncates identity or immutable authority. Pending/non-granted deltas are safely reset to empty `none` with diagnostics. Missing revisions or changed locators downgrade evidence to `verify` or `stale`; freshness is never silently upgraded. `authorizationDelta.status=granted` requires explicit provenance, but even historical granted data cannot widen the current contract.
+
+Ownership is per invocation, capsule, and topic ID rather than per role. Two Knights or two Hermits may run concurrently for independent tasks, including overlapping descriptions, while their evidence and generated handoffs remain isolated. The Magician is the only broker and transfers only exact target-relevant validated evidence. Coupled work is not split merely to increase parallelism. Page and Justice remain independent until cross-validation fusion.
+
+Task Dossiers extract exactly one capsule from native worker output and show compact capsule validity, evidence/unresolved counts, freshness, capsule ID, and topic IDs. A detail-only **View generated handoff** action renders a bounded, read-only review preview with Back navigation. It never calls `task`, `session.prompt`, clipboard, or any execution API, and legacy results remain visible as `missing (legacy result)`.
+
 ## Safety boundaries
 
 - Auditors are read-only. They can inspect permitted files with `read`, `glob`, and `grep`, use `webfetch`, `websearch`, and `skill` directly for assigned research, and run only exact `Get-Date`, `Get-Date -Format o`, `get-date`, or `get-date -format o` timestamp commands. They cannot edit, delegate, ask questions, write todos, or run other shell commands.
@@ -315,7 +325,7 @@ The public reproducible baseline is:
 bun run check
 ```
 
-This currently runs TypeScript checking plus **147 tests and 626 assertions**. After installation, restart OpenCode and distinguish the two inspections:
+This currently runs TypeScript checking plus **168 tests and 786 assertions**. Capsule framing, strict validation, compaction, authorization, accessor safety, exact source identity rejection, parallel isolation, dossier preview, prompt, and legacy compatibility tests are included. After installation, restart OpenCode and distinguish the two inspections:
 
 ```sh
 # Raw tuple/options as resolved from configuration
@@ -335,6 +345,7 @@ src/
   tui.ts                        TUI entrypoint and sidebar registration; native child-session navigation
   task-dossiers.ts              Native task history reconstruction, contract parsing, and status rules
   task-dossiers-tui.ts          Read-mostly dossier picker, details, and safe session navigation
+  handoff-capsules.ts           HANDOFF_CAPSULE v1 types, wire format, validation, compaction, freshness, and selection
   agents.ts                     Shared Arcana identities and assistant ordering
   options.ts                    Per-agent model, variant, permission, and wikiPath validation
   configure-agents.ts           Agent and permission configuration
@@ -349,6 +360,8 @@ prompts/
   hermit.md              Deep implementation contract
   page-of-swords.md      Focused read-only audit contract
   justice.md             Thorough read-only audit contract
+  handoff-capsule-producer.md Exact worker Capsule v1 schema and emission contract
+  handoff-capsule-broker.md   Magician-only Capsule v1 routing and filtering rules
 test/                     Unit and contract tests
 docs/                     Documentation, architecture decisions, and images
 package.json

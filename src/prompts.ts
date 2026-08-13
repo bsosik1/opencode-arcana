@@ -10,12 +10,20 @@ export type Prompts = {
 
 export async function loadPrompts(): Promise<Prompts> {
   const load = (name: string) => readFile(new URL(`../prompts/${name}.md`, import.meta.url), "utf8")
-  const [magician, knightOfSwords, hermit, pageOfSwords, justice] = await Promise.all([
+  const [magician, knightOfSwords, hermit, pageOfSwords, justice, producer, broker] = await Promise.all([
     load("magician"),
     load("knight-of-swords"),
     load("hermit"),
     load("page-of-swords"),
     load("justice"),
+    load("handoff-capsule-producer"),
+    load("handoff-capsule-broker"),
   ])
-  return { magician, knightOfSwords, hermit, pageOfSwords, justice }
+  return {
+    magician: `${magician.trim()}\n\n${broker.trim()}\n`,
+    knightOfSwords: `${knightOfSwords.trim()}\n\n${producer.trim()}\n`,
+    hermit: `${hermit.trim()}\n\n${producer.trim()}\n`,
+    pageOfSwords: `${pageOfSwords.trim()}\n\n${producer.trim()}\n`,
+    justice: `${justice.trim()}\n\n${producer.trim()}\n`,
+  }
 }

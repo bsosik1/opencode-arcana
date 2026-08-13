@@ -2,7 +2,9 @@ import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
 import {
   formatDossierDetails,
   formatDossierSummary,
+  generateDossierReviewHandoff,
   reconstructTaskDossiers,
+  wrapHandoffDisplayLines,
   type DossierChildSession,
   type TaskDossier,
 } from "./task-dossiers.ts"
@@ -64,15 +66,24 @@ async function loadDossiers(api: TuiPluginApi, rootSessionID: string): Promise<T
 }
 
 function childOption(dossier: TaskDossier, api: TuiPluginApi) {
+  // An unavailable child stays visible as a no-op row: the host omits disabled
+  // options, so a disabled row would hide the raw child ID and the user would
+  // lose context. The no-op cannot navigate, so the unavailable action remains
+  // non-executable while the child ID stays in view.
+  if (!dossier.childAvailable) {
+    return {
+      title: "Open child session (unavailable)",
+      value: "child",
+      description: dossier.childSessionID ?? "Child session unavailable",
+      onSelect: () => {},
+    }
+  }
   return {
     title: "Open child session",
     value: "child",
-    // The raw child ID stays visible as metadata, but navigation is only
-    // allowed while the child is a current direct child session.
-    disabled: !dossier.childAvailable,
     description: dossier.childSessionID ?? "Child session unavailable",
     onSelect: () => {
-      if (!dossier.childAvailable || !dossier.childSessionID) return
+      if (!dossier.childSessionID) return
       api.ui.dialog.clear()
       api.route.navigate("session", { sessionID: dossier.childSessionID })
     },
@@ -80,10 +91,37 @@ function childOption(dossier: TaskDossier, api: TuiPluginApi) {
 }
 
 function showDossierDetails(api: TuiPluginApi, dossier: TaskDossier, showList: () => void): void {
+  const showHandoff = () => {
+    const generatedLines = generateDossierReviewHandoff(dossier)
+    if (!generatedLines) return
+    const lines = wrapHandoffDisplayLines(generatedLines)
+    api.ui.dialog.setSize("xlarge")
+    api.ui.dialog.replace(() =>
+      api.ui.DialogSelect({
+        title: "Generated handoff (review only)",
+        placeholder: "Scroll: ↑/↓ · Page Up/Down · Home/End",
+        // Read-only rows must stay enabled: OpenTUI omits disabled options,
+        // which made a valid generated handoff appear blank. A no-op handler
+        // preserves the read-only boundary without hiding the content. Each
+        // payload line is its own navigable row, so arrow/Page/Home/End reach
+        // every JSON line and the Back row. skipFilter keeps the list stable
+        // so no row can be filtered away during review.
+        skipFilter: true,
+        options: [
+          ...lines.map((line, index) => ({ title: line || " ", value: `handoff:${index}`, onSelect: () => {} })),
+          { title: "Back to dossier details", value: "back", onSelect: () => showDossierDetails(api, dossier, showList) },
+        ],
+      }),
+    )
+  }
+  // Static information rows must stay enabled: the host omits disabled
+  // options, which hid the whole detail view. A no-op handler keeps them
+  // visible without any selection side effect (same read-only contract as the
+  // handoff preview rows).
   const detailOptions = formatDossierDetails(dossier).map((line) => ({
     title: line || " ",
     value: `detail:${line}`,
-    disabled: true,
+    onSelect: () => {},
   }))
   api.ui.dialog.setSize("xlarge")
   api.ui.dialog.replace(() =>
@@ -92,6 +130,13 @@ function showDossierDetails(api: TuiPluginApi, dossier: TaskDossier, showList: (
       placeholder: "Select a safe navigation action",
       options: [
         ...detailOptions,
+        {
+          title: "View generated handoff",
+          value: "handoff",
+          disabled: dossier.capsule.status !== "valid",
+          description: dossier.capsule.status === "valid" ? "Bounded review data; not execution authorization" : "Requires one valid Capsule v1",
+          onSelect: showHandoff,
+        },
         childOption(dossier, api),
         {
           title: "Open root session",
@@ -123,7 +168,9 @@ function showDossierList(api: TuiPluginApi, dossiers: TaskDossier[]): void {
         options: dossiers.map((dossier) => ({
           title: formatDossierSummary(dossier),
           value: dossier.id,
-          description: dossier.childSessionID ? `Child ${dossier.childSessionID}` : "Child session unavailable",
+           description: dossier.childSessionID
+             ? `${dossier.capsule.status === "valid" ? `Capsule ${dossier.capsule.evidenceCount}/${dossier.capsule.unresolvedCount}` : "No capsule"} | Child ${dossier.childSessionID}`
+             : dossier.capsule.status === "valid" ? `Capsule ${dossier.capsule.evidenceCount}/${dossier.capsule.unresolvedCount} | Child unavailable` : "No capsule | Child unavailable",
           onSelect: () => showDossierDetails(api, dossier, renderList),
         })),
       }),

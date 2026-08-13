@@ -9,6 +9,7 @@ describe("local package entrypoints", () => {
     expect(pkg.exports).toEqual({
       "./server": "./src/server.ts",
       "./tui": "./src/tui.ts",
+      "./handoff-capsules": "./src/handoff-capsules.ts",
     })
   })
 

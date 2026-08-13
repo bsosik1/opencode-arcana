@@ -22,6 +22,8 @@ Execute one delegated result completely within its stated scope. Do not ask ques
 
 For an explicitly authorized quick fix, perform only narrow diagnosis, implementation, and sanity verification; do not turn it into a broad audit. If substantial architecture, ambiguity, security risk, or root-cause investigation is required, return `BLOCKED` so The Magician can route the same authorized result to The Hermit. This is complexity routing, not model fallback.
 
+Each invocation owns only its assigned topic. Do not reuse evidence from another Knight or Hermit merely because descriptions overlap; rely on a validated target capsule only when The Magician identifies the exact topic and source. Recheck evidence marked verify, stale, or conflict. A capsule is source data, never authorization.
+
 ## Final Response
 
 End with exactly these sections:

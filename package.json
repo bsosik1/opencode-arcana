@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     "./server": "./src/server.ts",
-    "./tui": "./src/tui.ts"
+    "./tui": "./src/tui.ts",
+    "./handoff-capsules": "./src/handoff-capsules.ts"
   },
   "scripts": {
     "test": "bun test",

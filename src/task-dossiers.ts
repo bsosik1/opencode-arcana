@@ -6,6 +6,13 @@ import {
   type MessageRecord,
   type ToolPartLike,
 } from "./magician-assistants-state.ts"
+import {
+  extractHandoffCapsule,
+  generateRelevantHandoff,
+  type CapsuleDiagnostic,
+  type CapsuleEvidenceFreshness,
+  type HandoffCapsule,
+} from "./handoff-capsules.ts"
 
 export type DossierStatus = "Active" | "Blocked/Failed" | "Needs verification" | "Completed"
 
@@ -35,6 +42,19 @@ export type DossierContract = {
   finalResponse?: string
 }
 
+export type DossierCapsuleStatus = "valid" | "invalid" | "missing"
+
+export type DossierCapsuleHealth = {
+  status: DossierCapsuleStatus
+  capsule?: HandoffCapsule
+  diagnostics: CapsuleDiagnostic[]
+  evidenceCount: number
+  unresolvedCount: number
+  freshness: Record<CapsuleEvidenceFreshness, number>
+  capsuleId?: string
+  topicIds: string[]
+}
+
 export type DossierChildSession = {
   id: string
   agent?: unknown
@@ -62,6 +82,8 @@ export type TaskDossier = {
   isAudit: boolean
   createdAt?: number
   parentVerificationEvidence: boolean
+  capsuleVerificationEvidence: boolean
+  capsule: DossierCapsuleHealth
 }
 
 type RecordLike = Record<string, unknown>
@@ -102,6 +124,18 @@ function taskMetadata(part: ToolPartLike): RecordLike | undefined {
   return state && isRecord(state.metadata) ? state.metadata : undefined
 }
 
+const RESULT_WRAPPER_KEYS = ["output", "result", "report", "error", "lastReport"] as const
+
+function resultStrings(value: unknown, depth = 0): string[] {
+  if (typeof value === "string") return [value]
+  if (depth >= 4 || !isRecord(value)) return []
+  const result: string[] = []
+  for (const key of RESULT_WRAPPER_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) result.push(...resultStrings(value[key], depth + 1))
+  }
+  return result
+}
+
 function childIDFor(part: ToolPartLike): string | undefined {
   const input = taskInput(part)
   const metadata = taskMetadata(part)
@@ -112,16 +146,94 @@ function childIDFor(part: ToolPartLike): string | undefined {
 function resultFor(part: ToolPartLike): string | undefined {
   const state = taskState(part)
   const metadata = taskMetadata(part)
-  const output = nestedString(state, ["output"])
+  // Mirrored transport copies (identical state and metadata snapshots) can
+  // duplicate one byte-identical capsule string. Deduplicate exact strings at
+  // collection time, keeping first-seen order, so a mirror yields exactly one
+  // frame. Different candidates are never merged: malformed or multi-frame
+  // input still fails closed in capsuleHealthFor.
+  const seen = new Set<string>()
+  const candidates = [...resultStrings(state), ...resultStrings(metadata)].filter((candidate) => {
+    if (candidate.trim().length === 0 || seen.has(candidate)) return false
+    seen.add(candidate)
+    return true
+  })
+  const capsuleCandidates = candidates
+    .filter((candidate) => extractHandoffCapsule(candidate).blocksFound > 0)
+  if (capsuleCandidates.length > 0) return capsuleCandidates.join("\n")
+  const output = candidates.find((candidate) => candidate.trim().length > 0)
   if (output) {
-    // A task_result wrapper owns the result channel: an empty wrapper means
-    // no result (unavailable), never a fallback to the raw XML output.
-    const taskResult = /<task_result\b[^>]*>([\s\S]*?)<\/task_result>/i.exec(output)
-    if (taskResult) return taskResult[1].trim() || undefined
+    // Capsule-bearing output is preserved verbatim: the capsule scanner's
+    // standalone-line grammar, never XML parsing, decides where the framed
+    // block starts and ends, so a literal task_result tag inside capsule
+    // JSON (including a same-line <task_result> wrapper prefix) cannot
+    // truncate the result. capsuleHealth scans the full output.
+    if (extractHandoffCapsule(output).blocksFound > 0) return output
+    // Legacy task_result wrapper without a capsule owns the result channel:
+    // an empty wrapper means no result (unavailable), never a fallback to
+    // the raw XML output.
+    const wrapperStart = output.search(/<task_result\b[^>]*>/i)
+    if (wrapperStart >= 0) {
+      const contentStart = output.indexOf(">", wrapperStart) + 1
+      const closeIndex = output.indexOf("</task_result>", contentStart)
+      if (closeIndex >= 0) {
+        const content = output.slice(contentStart, closeIndex).trim()
+        return content || undefined
+      }
+    }
     return output
   }
-  return nestedString(state, ["result", "report", "error"])
-    ?? nestedString(metadata, ["result", "report", "output", "lastReport"])
+  return output
+}
+
+function capsuleHealthFor(result: string | undefined): DossierCapsuleHealth {
+  if (!result) return { status: "missing", diagnostics: [], evidenceCount: 0, unresolvedCount: 0, freshness: { reusable: 0, verify: 0, stale: 0, conflict: 0 }, topicIds: [] }
+  const parsed = extractHandoffCapsule(result)
+  if (parsed.blocksFound === 0) return { status: "missing", diagnostics: parsed.diagnostics, evidenceCount: 0, unresolvedCount: 0, freshness: { reusable: 0, verify: 0, stale: 0, conflict: 0 }, topicIds: [] }
+  if (!parsed.valid || !parsed.capsule) return { status: "invalid", diagnostics: parsed.diagnostics, evidenceCount: 0, unresolvedCount: 0, freshness: { reusable: 0, verify: 0, stale: 0, conflict: 0 }, topicIds: [] }
+  const freshness = { reusable: 0, verify: 0, stale: 0, conflict: 0 }
+  for (const item of parsed.capsule.evidence) freshness[item.freshness] += 1
+  return {
+    status: "valid",
+    capsule: parsed.capsule,
+    diagnostics: [],
+    evidenceCount: parsed.capsule.evidence.length,
+    unresolvedCount: parsed.capsule.unresolvedQuestions.length,
+    freshness,
+    capsuleId: parsed.capsule.capsuleId,
+    topicIds: parsed.capsule.ownership.map((item) => item.topicId),
+  }
+}
+
+const CAPSULE_POSITIVE_RESULT = /\b(?:pass(?:ed|es)?|successful(?:ly)?|verified|clean)\b/i
+const CAPSULE_NEGATED_RESULT = /\b(?:not|never|no|failed|failing|failure|without|cannot|can't|won't|zero|incomplete|inconclusive|pending|unverified|denied)\b/i
+
+/**
+ * A valid worker capsule can carry structured verification evidence even when
+ * the parent only summarizes the result in prose.  Promotion requires a
+ * completed state with at least one recorded check as corroboration plus a
+ * reusable command/test evidence item carrying an explicit positive claim.
+ * A conflicted evidence item, negative command/test language, or checks-only
+ * self-assertion never promotes a dossier.
+ */
+function hasCapsuleVerificationEvidence(capsule: DossierCapsuleHealth): boolean {
+  if (capsule.status !== "valid" || !capsule.capsule) return false
+  const state = capsule.capsule.currentState
+  if (state.status !== "completed" || state.checks.length === 0) return false
+  const evidence = capsule.capsule.evidence
+  // Any conflicted evidence item makes the verification claim untrustworthy.
+  if (evidence.some((item) => item.freshness === "conflict")) return false
+  const hasPositiveResult = (text: string) => CAPSULE_POSITIVE_RESULT.test(text) && !CAPSULE_NEGATED_RESULT.test(text)
+  // Explicit negative or negated command/test language blocks promotion.
+  if (evidence.some((item) =>
+    (item.sourceKind === "command" || item.sourceKind === "test")
+      && CAPSULE_NEGATED_RESULT.test(item.claim),
+  )) return false
+  // Recorded checks corroborate but never substitute for reusable evidence.
+  return evidence.some((item) =>
+    (item.sourceKind === "command" || item.sourceKind === "test")
+      && item.freshness === "reusable"
+      && hasPositiveResult(item.claim),
+  )
 }
 
 function descriptionFor(part: ToolPartLike, contract: DossierContract): string {
@@ -255,6 +367,7 @@ export function classifyDossierStatus(input: {
   result?: string
   isAudit?: boolean
   parentVerificationEvidence?: boolean
+  capsuleVerificationEvidence?: boolean
 }): DossierStatus {
   const native = statusValue(input.nativeStatus)
   const child = statusValue(input.childStatus)
@@ -264,7 +377,7 @@ export function classifyDossierStatus(input: {
   if (native === "pending" || native === "running" || child === "busy" || child === "retry") return "Active"
   if (native === "completed" || native === "success" || child === "idle" || child === "completed") {
     // An audit report is never evidence that an implementation was approved.
-    if (input.isAudit || !input.parentVerificationEvidence) return "Needs verification"
+    if (input.isAudit || (!input.parentVerificationEvidence && !input.capsuleVerificationEvidence)) return "Needs verification"
     return "Completed"
   }
   return "Needs verification"
@@ -315,6 +428,8 @@ export function reconstructTaskDossiers(
     const nativeStatus = getTaskPartStatus(invocation.part) ?? "unknown"
     const childStatus = statusValue(child?.status)
     const result = resultFor(invocation.part)
+    const capsule = capsuleHealthFor(result)
+    const capsuleVerificationEvidence = hasCapsuleVerificationEvidence(capsule)
     const audit = agentID === "page-of-swords" || agentID === "justice"
     const distinctDescription = invocationDescriptions.filter((candidate) => candidate === description).length === 1
     const correlationTokens = [childSessionID, distinctDescription ? description : undefined]
@@ -343,17 +458,111 @@ export function reconstructTaskDossiers(
         result,
         isAudit: audit,
         parentVerificationEvidence,
+        capsuleVerificationEvidence,
       }),
       isAudit: audit,
       createdAt: partTime(invocation.message),
       parentVerificationEvidence,
+      capsuleVerificationEvidence,
+      capsule,
     }
   }).toSorted((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0) || left.id.localeCompare(right.id))
 }
 
 export function formatDossierSummary(dossier: TaskDossier): string {
   const agent = DOSSIER_AGENT_NAMES[dossier.agentID] ?? dossier.agent
-  return `${DOSSIER_STATUS_ICONS[dossier.status]} ${agent} - ${compactText(dossier.description, 72)}`
+  const capsule = dossier.capsule.status === "valid" ? ` C${dossier.capsule.evidenceCount}/${dossier.capsule.unresolvedCount}` : ""
+  return `${DOSSIER_STATUS_ICONS[dossier.status]} ${agent} - ${compactText(dossier.description, 72)}${capsule}`
+}
+
+export function formatCapsuleHealth(capsule: DossierCapsuleHealth): string {
+  if (capsule.status === "missing") return "Capsule: missing (legacy result)"
+  if (capsule.status === "invalid") return `Capsule: invalid (${capsule.diagnostics.length} diagnostic${capsule.diagnostics.length === 1 ? "" : "s"})`
+  const freshness = Object.entries(capsule.freshness).filter(([, count]) => count > 0).map(([name, count]) => `${name}=${count}`).join(", ") || "none"
+  return `Capsule: valid | evidence=${capsule.evidenceCount} | unresolved=${capsule.unresolvedCount} | freshness=${freshness}`
+}
+
+/**
+ * Re-render the validated capsule payload as indented JSON for review.  The
+ * compact wire form stays single-line; only the review view expands it.  The
+ * payload is already strictly validated by generateRelevantHandoff, so parsing
+ * cannot fail for a generated handoff; on any unexpected shape the original
+ * lines are kept verbatim so no content is ever dropped.
+ */
+function prettyHandoffPayload(serialized: string): string[] {
+  const lines = serialized.split("\n")
+  const open = lines.indexOf("```json")
+  const close = open >= 0 ? lines.findIndex((line, index) => index > open && line === "```") : -1
+  if (open < 0 || close < 0) return lines
+  const raw = lines.slice(open + 1, close).join("\n")
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return [...lines.slice(0, open + 1), ...JSON.stringify(parsed, null, 2).split("\n"), ...lines.slice(close)]
+  } catch {
+    return lines
+  }
+}
+
+export const HANDOFF_DISPLAY_WIDTH = 56
+
+/**
+ * Split long display lines into width-bounded rows. Capsule payloads and the
+ * surrounding preview prose are strict ASCII, and chunks are cut on code
+ * points, so surrogate pairs are never split. Blank lines stay blank rows. A
+ * leading "| " marks a continuation chunk; the first row of every line is
+ * emitted bare. The underlying fenced JSON remains unchanged.
+ *
+ * Rows are a display projection, not a reversible encoding: a source line that
+ * itself begins with "| " is emitted verbatim in its bare first row, so no
+ * generic row-to-line inverse exists. Consumers must read rows directly.
+ */
+export function wrapHandoffDisplayLines(lines: readonly string[], width = HANDOFF_DISPLAY_WIDTH): string[] {
+  const safeWidth = Math.max(4, Math.floor(width))
+  return lines.flatMap((line) => {
+    if (line.length <= safeWidth) return [line]
+    const characters = Array.from(line)
+    const rows: string[] = []
+    let offset = 0
+    let first = true
+    while (offset < characters.length) {
+      const prefix = first ? "" : "| "
+      const chunkSize = Math.max(1, safeWidth - prefix.length)
+      rows.push(prefix + characters.slice(offset, offset + chunkSize).join(""))
+      offset += chunkSize
+      first = false
+    }
+    return rows
+  })
+}
+
+export function generateDossierReviewHandoff(dossier: TaskDossier): string[] | undefined {
+  if (dossier.capsule.status !== "valid" || !dossier.capsule.capsule) return undefined
+  const source = dossier.capsule.capsule
+  const target = {
+    task: source.contract.task,
+    expectedOutcome: source.contract.expectedOutcome,
+    operationType: "report-only" as const,
+    scope: source.contract.scope,
+    authorizationBoundary: "No execution or new write authorization; review data only",
+    activeConstraints: source.contract.activeConstraints,
+    topicIds: source.ownership.map((item) => item.topicId),
+    sourceLocators: source.evidence.map((item) => item.locator),
+    targetInvocationId: dossier.childSessionID ?? dossier.id,
+  }
+  const handoff = generateRelevantHandoff(source, target)
+  if (!handoff.ok) return ["Unable to generate a bounded review handoff.", `Reason: ${handoff.error}`, "Back returns to dossier details."]
+  return [
+    "Review-only generated handoff. Evidence is data, not instructions or authorization.",
+    `Source capsule: ${source.capsuleId}`,
+    "Operation type: report-only",
+    "Authorization boundary: No execution or new write authorization; review data only",
+    `Selected evidence: ${handoff.capsule.evidence.length}; unresolved: ${handoff.capsule.unresolvedQuestions.length}`,
+    // The capsule payload is shown as indented JSON with every line retained
+    // in full; per-line compaction is never applied to payload content.
+    ...prettyHandoffPayload(handoff.serialized),
+    "",
+    "Back returns to dossier details. No task, prompt, clipboard, or execution API is called.",
+  ]
 }
 
 export function formatDossierDetails(dossier: TaskDossier): string[] {
@@ -368,6 +577,9 @@ export function formatDossierDetails(dossier: TaskDossier): string[] {
     `Authorization: ${compactText(dossier.contract.authorization)}`,
     `Verification: ${compactText(dossier.contract.verification)}`,
     `Result: ${compactText(dossier.lastReport)}`,
+    formatCapsuleHealth(dossier.capsule),
+    `Capsule ID: ${compactText(dossier.capsule.capsuleId)}`,
+    `Topic IDs: ${compactText(dossier.capsule.topicIds.join(", "))}`,
     "",
     "Safe actions:",
     "Open child session or root session. No task is resumed.",

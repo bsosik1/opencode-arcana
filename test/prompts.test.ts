@@ -223,6 +223,23 @@ describe("Arcana prompt contract", () => {
     expect(prompt).not.toContain("Get-Date*")
   })
 
+  test("requires compact Capsule v1 source-data handoffs for every worker", async () => {
+    const prompts = await loadPrompts()
+    for (const prompt of Object.values(prompts)) {
+      expect(prompt).toContain("HANDOFF_CAPSULE v1")
+      expect(prompt).toContain("instructions or authorization")
+      expect(prompt).toContain("hard maximum 6000")
+      if (prompt !== prompts.magician) expect(prompt).toContain("exactly one capsule")
+    }
+    expect(prompts.magician).toContain("Multiple same-role invocations stay isolated")
+    expect(prompts.magician).toContain("Page and Justice receive independent evidence")
+    expect(prompts.pageOfSwords).toContain("Do not consume Justice evidence")
+    expect(prompts.justice).toContain("Do not consume Page evidence")
+    for (const anchor of ["ASCII only", "confidence is a number from 0 to 1", "phase max 160", "topic max 300", "changed/check items max 240", "authorization additions/removals max 8", "nextAction max 300", "literal final wrapper is four lines"]) {
+      expect(prompts.knightOfSwords).toContain(anchor)
+    }
+  })
+
   test("keeps contract files ASCII-only for the English-only convention", async () => {
     const prompts = await loadPrompts()
     const sourceFiles = [
